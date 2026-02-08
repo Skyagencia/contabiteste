@@ -108,6 +108,42 @@ async function requireAuthOrRedirect() {
   return true;
 }
 
+// ===== PWA: estado de instalação (some com prompts quando já está instalado) =====
+function isAppInstalled() {
+  return (
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+    window.navigator.standalone === true
+  );
+}
+
+/**
+ * ✅ Se houver algum UI de "instalar" na página (ex: #installPrompt),
+ * isso garante que:
+ * - Se já estiver instalado: esconde
+ * - Se instalar agora: esconde na hora (evento appinstalled)
+ *
+ * Obs: Mesmo que o app não tenha esse elemento, não dá erro.
+ */
+function setupInstallStateWatcher() {
+  const DISMISS_KEY = "contabils_install_dismissed_at";
+
+  function markInstalledAndHide() {
+    try {
+      localStorage.setItem(DISMISS_KEY, String(Date.now()));
+    } catch {}
+    const el = document.getElementById("installPrompt");
+    if (el) el.hidden = true;
+  }
+
+  // Se já está instalado, some com qualquer prompt
+  if (isAppInstalled()) markInstalledAndHide();
+
+  // Se instalar durante o uso, some na hora
+  window.addEventListener("appinstalled", () => {
+    markInstalledAndHide();
+  });
+}
+
 // ===== Logout =====
 logoutBtn?.addEventListener("click", async () => {
   const sb = await waitForSupabaseClient();
@@ -469,10 +505,11 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-
-
 // ===== INIT =====
 (async function init() {
+  // ✅ garante que qualquer UI de “Instalar” suma quando já estiver instalado
+  setupInstallStateWatcher();
+
   // init inputs
   if (monthInput) monthInput.value = currentMonth();
   if (dateEl) dateEl.value = todayISO();
@@ -484,4 +521,3 @@ if ("serviceWorker" in navigator) {
   await loadCategories();
   await load();
 })();
-
