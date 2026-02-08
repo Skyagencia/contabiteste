@@ -58,6 +58,7 @@ body::after{
   max-width: 1080px;
   margin: 28px auto;
   padding: 0 18px 42px;
+  animation: appFade .25s ease-out; /* <<< */
 }
 
 .header{
@@ -376,3 +377,4 @@ input:focus,select:focus{
     transform: translateY(0);
   }
 }
+
