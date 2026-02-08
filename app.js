@@ -32,10 +32,20 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
-// Espera o Supabase aparecer no window (evita "undefined" em cache/ordem de script)
+function setHint(msg) {
+  if (hint) hint.textContent = msg || "";
+}
+
+function redirectToLogin() {
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.replace(`/login.html?next=${next}`);
+}
+
+// ===== Supabase Client (SEM CONFUSÃO) =====
+// A gente SEMPRE usa o client criado no index.html: window.supabaseClient
 async function waitForSupabaseClient({ tries = 50, delayMs = 80 } = {}) {
   for (let i = 0; i < tries; i++) {
-    const sb = window.supabaseClient || window.supabase;
+    const sb = window.supabaseClient;
     if (sb && sb.auth) return sb;
     await new Promise((r) => setTimeout(r, delayMs));
   }
@@ -45,7 +55,7 @@ async function waitForSupabaseClient({ tries = 50, delayMs = 80 } = {}) {
 // Pega headers auth (Bearer token)
 async function authHeaders() {
   const sb = await waitForSupabaseClient();
-  if (!sb) return {}; // vai falhar em requireAuthOrRedirect mesmo
+  if (!sb) return {};
 
   const { data } = await sb.auth.getSession();
   const token = data?.session?.access_token;
@@ -53,11 +63,26 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// Wrapper fetch com auth
+// Wrapper fetch com auth + TRATA 401
 async function fetchAuth(url, opts = {}) {
   const headers = await authHeaders();
   const mergedHeaders = { ...(opts.headers || {}), ...headers };
   const res = await fetch(url, { ...opts, headers: mergedHeaders });
+
+  // ✅ se deu 401, sessão morreu → manda pro login sem quebrar o app
+  if (res.status === 401) {
+    try {
+      const sb = await waitForSupabaseClient();
+      if (sb?.auth) await sb.auth.signOut();
+    } catch (e) {
+      console.warn("signOut falhou no 401:", e);
+    } finally {
+      localStorage.clear();
+      sessionStorage.clear();
+      redirectToLogin();
+    }
+  }
+
   return res;
 }
 
@@ -67,15 +92,16 @@ async function requireAuthOrRedirect() {
 
   if (!sb || !sb.auth) {
     console.warn("Supabase client não encontrado ainda.");
-    return false; // não quebra a página
+    // não quebra a página, mas também não deixa seguir
+    setHint("Carregando...");
+    return false;
   }
 
   const { data } = await sb.auth.getSession();
   const session = data?.session;
 
   if (!session) {
-    const next = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.replace(`/login.html?next=${next}`);
+    redirectToLogin();
     return false;
   }
 
@@ -83,32 +109,33 @@ async function requireAuthOrRedirect() {
 }
 
 // ===== Logout =====
-document.getElementById("logoutBtn")?.addEventListener("click", async () => {
-  const sb = window.supabaseClient || window.supabase;
+logoutBtn?.addEventListener("click", async () => {
+  const sb = await waitForSupabaseClient();
 
-  const btn = document.getElementById("logoutBtn");
-  const oldText = btn?.textContent || "Sair";
+  const oldText = logoutBtn?.textContent || "Sair";
 
   if (!sb?.auth) {
     alert("Supabase não carregou ainda. Recarrega a página e tenta de novo.");
     return;
   }
 
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Saindo...";
+  if (logoutBtn) {
+    logoutBtn.disabled = true;
+    logoutBtn.textContent = "Saindo...";
   }
 
   try {
     const { error } = await sb.auth.signOut();
     if (error) throw error;
 
+    localStorage.clear();
+    sessionStorage.clear();
     window.location.href = "/login.html";
   } catch (e) {
     console.error(e);
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = oldText;
+    if (logoutBtn) {
+      logoutBtn.disabled = false;
+      logoutBtn.textContent = oldText;
     }
     alert("Não consegui sair agora. Tenta de novo rapidinho.");
   }
@@ -116,9 +143,13 @@ document.getElementById("logoutBtn")?.addEventListener("click", async () => {
 
 // ====== App ======
 function animateNumber(el, toCents) {
+  if (!el) return;
+
   const fromText = el.getAttribute("data-cents");
   const from = fromText ? Number(fromText) : 0;
-  const to = Number(toCents);
+
+  // ✅ garante número válido (evita NaN)
+  const to = Number.isFinite(Number(toCents)) ? Number(toCents) : 0;
 
   const start = performance.now();
   const dur = 420;
@@ -136,7 +167,9 @@ function animateNumber(el, toCents) {
 }
 
 async function load() {
-  const month = monthInput.value || currentMonth();
+  setHint("");
+
+  const month = monthInput?.value || currentMonth();
   const cat = categoryFilter?.value || "";
 
   const [sumRes, txRes] = await Promise.all([
@@ -144,29 +177,37 @@ async function load() {
     fetchAuth(`/api/transactions?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`),
   ]);
 
+  // Se rolou 401, fetchAuth já redirecionou. Só para por aqui.
+  if (!sumRes || !txRes) return;
+
   if (!sumRes.ok) {
     const err = await sumRes.json().catch(() => ({}));
-    hint.textContent = err?.error || "Erro ao carregar resumo";
+    setHint(err?.error || "Erro ao carregar resumo");
     return;
   }
 
   if (!txRes.ok) {
     const err = await txRes.json().catch(() => ({}));
-    hint.textContent = err?.error || "Erro ao carregar transações";
+    setHint(err?.error || "Erro ao carregar transações");
     return;
   }
 
-  const summary = await sumRes.json();
-  const txs = await txRes.json();
+  const summary = await sumRes.json().catch(() => ({}));
+  const txsRaw = await txRes.json().catch(() => []);
+
+  // ✅ txs SEMPRE array (mata o “txs is not iterable”)
+  const txs = Array.isArray(txsRaw) ? txsRaw : [];
 
   animateNumber(incomeValue, summary.income);
   animateNumber(expenseValue, summary.expense);
   animateNumber(balanceValue, summary.balance);
 
-  listEl.innerHTML = "";
+  if (listEl) listEl.innerHTML = "";
 
   if (!txs || txs.length === 0) {
-    listEl.innerHTML = `<div class="item"><span class="meta">Sem lançamentos neste mês. Bora começar? 😄</span></div>`;
+    if (listEl) {
+      listEl.innerHTML = `<div class="item"><span class="meta">Sem lançamentos neste mês. Bora começar? 😄</span></div>`;
+    }
     return;
   }
 
@@ -190,6 +231,10 @@ async function load() {
 
     div.querySelector(".del").addEventListener("click", async () => {
       const delRes = await fetchAuth(`/api/transactions/${tx.id}`, { method: "DELETE" });
+
+      // 401 já redirecionou
+      if (!delRes) return;
+
       if (!delRes.ok) {
         const err = await delRes.json().catch(() => ({}));
         alert(err?.error || "Não consegui apagar agora.");
@@ -198,48 +243,56 @@ async function load() {
       load();
     });
 
-    listEl.appendChild(div);
+    listEl?.appendChild(div);
   }
 }
 
 async function loadCategories() {
-  // categorias são globais (não precisam auth)
-  const type = typeEl.value; // income/expense
-  const res = await fetch(`/api/categories?type=${encodeURIComponent(type)}`);
-  const cats = await res.json();
+  try {
+    // categorias são globais (não precisam auth)
+    const type = typeEl?.value || "income"; // income/expense
 
-  // select de lançamento
-  categorySelect.innerHTML = "";
-  for (const c of cats) {
-    const opt = document.createElement("option");
-    opt.value = c.name;
-    opt.textContent = `${c.emoji} ${c.name}`;
-    categorySelect.appendChild(opt);
+    const res = await fetch(`/api/categories?type=${encodeURIComponent(type)}`);
+    const catsRaw = await res.json().catch(() => []);
+    const cats = Array.isArray(catsRaw) ? catsRaw : [];
+
+    // select de lançamento
+    categorySelect.innerHTML = "";
+    for (const c of cats) {
+      const opt = document.createElement("option");
+      opt.value = c.name;
+      opt.textContent = `${c.emoji} ${c.name}`;
+      categorySelect.appendChild(opt);
+    }
+
+    // filtro (todas categorias)
+    const allRes = await fetch(`/api/categories`);
+    const allCatsRaw = await allRes.json().catch(() => []);
+    const allCats = Array.isArray(allCatsRaw) ? allCatsRaw : [];
+
+    const current = categoryFilter?.value || "";
+    categoryFilter.innerHTML = `<option value="">Todas</option>`;
+    for (const c of allCats) {
+      const opt = document.createElement("option");
+      opt.value = c.name;
+      opt.textContent = `${c.emoji} ${c.name}`;
+      categoryFilter.appendChild(opt);
+    }
+    categoryFilter.value = current;
+  } catch (e) {
+    console.error("Erro ao carregar categorias:", e);
+    setHint("Erro ao carregar categorias");
   }
-
-  // filtro (todas categorias)
-  const allRes = await fetch(`/api/categories`);
-  const allCats = await allRes.json();
-
-  const current = categoryFilter.value || "";
-  categoryFilter.innerHTML = `<option value="">Todas</option>`;
-  for (const c of allCats) {
-    const opt = document.createElement("option");
-    opt.value = c.name;
-    opt.textContent = `${c.emoji} ${c.name}`;
-    categoryFilter.appendChild(opt);
-  }
-  categoryFilter.value = current;
 }
 
 // ====== Eventos ======
-form.addEventListener("submit", async (e) => {
+form?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  hint.textContent = "";
+  setHint("");
 
   const payload = {
     type: typeEl.value,
-    amount: amountEl.value.replace(",", "."),
+    amount: (amountEl.value || "").replace(",", "."),
     category: categorySelect.value,
     description: descriptionEl.value,
     date: dateEl.value,
@@ -251,36 +304,43 @@ form.addEventListener("submit", async (e) => {
     body: JSON.stringify(payload),
   });
 
+  // 401 já redirecionou
+  if (!res) return;
+
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    hint.textContent = data.error || "Erro ao salvar";
+    setHint(data.error || "Erro ao salvar");
     return;
   }
 
   amountEl.value = "";
   descriptionEl.value = "";
   categoryEl.value = "";
-  hint.textContent = "Salvo ✅";
+  setHint("Salvo ✅");
   load();
 });
 
-monthInput.addEventListener("change", load);
+monthInput?.addEventListener("change", load);
 
-typeEl.addEventListener("change", async () => {
+typeEl?.addEventListener("change", async () => {
   await loadCategories();
 });
 
 categoryFilter?.addEventListener("change", load);
 
 // ===== Export (com auth via blob) =====
-exportBtn.addEventListener("click", async () => {
+exportBtn?.addEventListener("click", async () => {
   try {
-    const month = monthInput.value || currentMonth();
+    const month = monthInput?.value || currentMonth();
     const cat = categoryFilter?.value || "";
     const url = `/export.xlsx?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`;
 
     const res = await fetchAuth(url);
+
+    // 401 já redirecionou
+    if (!res) return;
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       alert(err?.error || "Não consegui exportar agora.");
@@ -317,8 +377,8 @@ if ("serviceWorker" in navigator) {
 // ===== INIT =====
 (async function init() {
   // init inputs
-  monthInput.value = currentMonth();
-  dateEl.value = todayISO();
+  if (monthInput) monthInput.value = currentMonth();
+  if (dateEl) dateEl.value = todayISO();
 
   // trava o app se não tiver logado
   const ok = await requireAuthOrRedirect();
