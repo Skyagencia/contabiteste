@@ -6,7 +6,7 @@
   <title>Contabils — Entrar</title>
 
   <link rel="stylesheet" href="/styles.css" />
-  <!-- ✅ IMPORTANTE: manifest no login também (senão não fica “instalável” aqui) -->
+  <!-- ✅ PWA -->
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0b1220" />
 </head>
@@ -71,16 +71,13 @@
 
   <script>
     // =========================
-    // 0) PWA: registrar SW também no login (pra página ficar instalável)
+    // 0) PWA: registra SW também no login
     // =========================
     (function registerSwOnLogin(){
       if (!("serviceWorker" in navigator)) return;
       window.addEventListener("load", async () => {
-        try {
-          await navigator.serviceWorker.register("/sw.js");
-        } catch (e) {
-          console.warn("SW não registrou no login:", e);
-        }
+        try { await navigator.serviceWorker.register("/sw.js"); }
+        catch (e) { console.warn("SW não registrou no login:", e); }
       });
     })();
 
@@ -153,26 +150,14 @@
     };
 
     // =========================
-    // 5) SIGNUP (CRIAR CONTA)
+    // 5) CRIAR CONTA → VAI PARA signup.html
     // =========================
-    signupBtn.onclick = async () => {
-      const email = cleanEmail(emailEl.value);
-      const password = passEl.value || "";
-
-      if (!email.includes("@")) return setHint("Email inválido", true);
-      if (password.length < 6)  return setHint("Senha muito curta (mín. 6)", true);
-
-      setHint("Criando conta...");
-
-      const { error } = await supabaseClient.auth.signUp({ email, password });
-      if (error) return setHint(error.message || "Erro ao criar conta", true);
-
-      setHint("Conta criada ✅ Agora confirma no email e depois faz login aqui.", false);
-      passEl.value = "";
+    signupBtn.onclick = () => {
+      window.location.href = "/signup.html";
     };
 
     // =========================
-    // 6) RESET DE SENHA
+    // 6) RESET DE SENHA (mantém!)
     // =========================
     forgotBtn.onclick = async () => {
       const email = cleanEmail(emailEl.value);
@@ -189,7 +174,7 @@
     };
 
     // =========================
-    // 7) PWA INSTALL (sutil no login)
+    // 7) PWA INSTALL (somente pelo nosso botão)
     // =========================
     (function setupInstallPrompt(){
       const promptEl = document.getElementById("installPrompt");
@@ -202,82 +187,92 @@
       const DISMISS_KEY = "contabils_install_dismissed_at";
       const DISMISS_DAYS = 7;
 
-      const now = Date.now();
-      const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
-      const dismissedRecently = dismissedAt && (now - dismissedAt) < DISMISS_DAYS * 24 * 60 * 60 * 1000;
-
-      const isStandalone =
-        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-        window.navigator.standalone === true;
-
-      if (isStandalone || dismissedRecently) return;
-
-      let deferredPrompt = null;
-
-      function show() { promptEl.hidden = false; }
-      function hide() { promptEl.hidden = true; }
-
-      function markDismissed(){
-        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+      function isStandalone(){
+        return (
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          window.navigator.standalone === true
+        );
       }
 
-      closeBtn.addEventListener("click", () => {
-        markDismissed();
-        hide();
-      });
+      function dismissedRecently(){
+        const now = Date.now();
+        const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
+        return dismissedAt && (now - dismissedAt) < DISMISS_DAYS * 24 * 60 * 60 * 1000;
+      }
 
-      // ✅ Se instalar, some na hora
-      window.addEventListener("appinstalled", () => {
-        markDismissed();
-        hide();
-      });
+      function show(){ promptEl.hidden = false; }
+      function hide(){ promptEl.hidden = true; }
 
-      // Android/Chrome/Edge: evento oficial
+      function dismiss(){
+        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+        hide();
+      }
+
+      // estado inicial
+      hide();
+      installBtn.disabled = true;
+
+      if (isStandalone() || dismissedRecently()) return;
+
+      // iOS: mostra instrução (não tem prompt nativo)
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
+
+      if (isIOS && isSafari) {
+        subtitleEl.textContent = "iPhone: Compartilhar → Adicionar à Tela de Início";
+        installBtn.textContent = "Como instalar";
+        installBtn.disabled = false;
+        show();
+
+        installBtn.onclick = () => {
+          alert("No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.");
+          dismiss();
+        };
+
+        closeBtn.onclick = dismiss;
+
+        window.addEventListener("appinstalled", dismiss);
+        return;
+      }
+
+      // Android/Chrome: captura e bloqueia o prompt automático
+      window.__deferredPrompt = null;
+
       window.addEventListener("beforeinstallprompt", (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
+        e.preventDefault(); // ✅ bloqueia o do Chrome
+        window.__deferredPrompt = e;
 
         subtitleEl.textContent = "Acesso rápido na tela inicial";
         installBtn.textContent = "Instalar";
+        installBtn.disabled = false;
         show();
       });
 
       installBtn.addEventListener("click", async () => {
-        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-        const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
-
-        // iOS/Safari: sem prompt nativo
-        if (isIOS && isSafari) {
-          alert("No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.");
-          markDismissed();
-          hide();
+        const dp = window.__deferredPrompt;
+        if (!dp) {
+          alert("Se não abrir, procure o ícone de instalar (⬇️) na barra do navegador.");
+          dismiss();
           return;
         }
 
-        // Se não tem deferredPrompt, o app ainda não está “instalável” nesse momento
-        // (ou o navegador não liberou o prompt). Dá uma instrução correta pra desktop/Android:
-        if (!deferredPrompt) {
-          alert("Se o botão não abrir a instalação, procure o ícone de instalar (⬇️) na barra de endereços do navegador.");
-          markDismissed();
-          hide();
-          return;
-        }
+        dp.prompt();
+        await dp.userChoice.catch(() => {});
+        window.__deferredPrompt = null;
 
-        deferredPrompt.prompt();
-        await deferredPrompt.userChoice.catch(() => {});
-        deferredPrompt = null;
-
-        markDismissed();
-        hide();
+        dismiss();
       });
 
-      // iOS/Safari: mostra como “Como instalar”
-      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-      const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
-      if (isIOS && isSafari) {
-        subtitleEl.textContent = "iPhone: Compartilhar → Adicionar à Tela de Início";
-        installBtn.textContent = "Como instalar";
-        show();
+      closeBtn.addEventListener("click", dismiss);
+
+      window.addEventListener("appinstalled", () => {
+        localStorage.setItem("contabils_installed", "1");
+        dismiss();
+      });
+
+      // Se já marcou como instalado, não mostra (extra)
+      if (localStorage.getItem("contabils_installed") === "1") {
+        hide();
       }
     })();
   </script>
