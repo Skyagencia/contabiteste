@@ -111,6 +111,22 @@
     </section>
   </div>
 
-  <script src="/app.js"></script>
+<!-- Supabase v2 (IIFE global) -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+<script>
+  const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
+
+  // ✅ aqui o correto é window.supabase (a lib), e não window.supabase.createClient
+  // porque na IIFE v2 o objeto global costuma expor createClient dentro dele.
+  window.supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+</script>
+
+<script src="/app.js"></script>
+
 </body>
 </html>
