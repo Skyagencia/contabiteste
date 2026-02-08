@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contabils — Criar conta</title>
+
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1220" />
+</head>
+<body>
+  <div class="app">
+    <div class="panel" style="max-width:720px; margin: 60px auto 0;">
+      <div class="panelHead" style="border-bottom:0; padding-bottom: 0;">
+        <div class="brand" style="align-items:center;">
+          <div class="logo" style="overflow:hidden;">
+            <img src="/icon-192.png" alt="Contabils" style="width:100%; height:100%; object-fit:cover;">
+          </div>
+          <div>
+            <h1 style="margin:0;">Criar conta</h1>
+            <p class="sub" style="margin-top:6px;">Rapidinho. Em 30 segundos você já tá lançando gastos 😄</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="form" style="padding-top: 10px;">
+        <div class="row">
+          <div class="field grow">
+            <label>Nome</label>
+            <input id="name" type="text" placeholder="Seu nome" autocomplete="name" />
+          </div>
+
+          <div class="field grow">
+            <label>Telefone</label>
+            <input id="phone" type="tel" placeholder="(xx) xxxxx-xxxx" autocomplete="tel" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field grow">
+            <label>Email</label>
+            <input id="email" type="email" placeholder="seuemail@..." autocomplete="email" />
+          </div>
+
+          <div class="field grow">
+            <label>Senha</label>
+            <input id="password" type="password" placeholder="mín. 6 caracteres" autocomplete="new-password" />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="createBtn" class="btn" type="button">Criar minha conta</button>
+          <button id="backBtn" class="del" type="button">Já tenho conta</button>
+        </div>
+
+        <span id="hint" class="hint"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase JS (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <script>
+    // PWA: registra SW aqui também (não atrapalha, só ajuda)
+    (function registerSw(){
+      if (!("serviceWorker" in navigator)) return;
+      window.addEventListener("load", async () => {
+        try { await navigator.serviceWorker.register("/sw.js"); } catch {}
+      });
+    })();
+
+    // Supabase
+    const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const nameEl = document.getElementById("name");
+    const phoneEl = document.getElementById("phone");
+    const emailEl = document.getElementById("email");
+    const passEl  = document.getElementById("password");
+    const hintEl  = document.getElementById("hint");
+
+    const createBtn = document.getElementById("createBtn");
+    const backBtn = document.getElementById("backBtn");
+
+    function setHint(msg, isError=false){
+      hintEl.textContent = msg || "";
+      hintEl.style.color = isError ? "#ef4444" : "rgba(11,26,23,.65)";
+    }
+
+    function cleanEmail(v){
+      return String(v || "").trim().toLowerCase();
+    }
+
+    function cleanText(v){
+      return String(v || "").trim();
+    }
+
+    function onlyDigits(v){
+      return String(v || "").replace(/\D+/g, "");
+    }
+
+    // Se já estiver logado, manda pro app
+    (async function boot(){
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        if (data?.session) {
+          window.location.href = "/index.html";
+          return;
+        }
+        setHint("Preenche e cria sua conta ✅");
+      } catch (e) {
+        console.warn(e);
+      }
+    })();
+
+    backBtn.onclick = () => {
+      window.location.href = "/login.html";
+    };
+
+    createBtn.onclick = async () => {
+      const name = cleanText(nameEl.value);
+      const phoneRaw = cleanText(phoneEl.value);
+      const phoneDigits = onlyDigits(phoneRaw);
+
+      const email = cleanEmail(emailEl.value);
+      const password = passEl.value || "";
+
+      if (name.length < 2) return setHint("Coloca seu nome (rapidinho 😄)", true);
+
+      // ✅ telefone obrigatório
+      if (phoneDigits.length < 10) {
+        return setHint("Telefone inválido (coloque DDD + número)", true);
+      }
+
+      if (!email.includes("@")) return setHint("Email inválido", true);
+      if (password.length < 6) return setHint("Senha muito curta (mín. 6)", true);
+
+      setHint("Criando sua conta...");
+
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+            phone: phoneDigits
+          }
+        }
+      });
+
+      if (error) return setHint(error.message || "Erro ao criar conta", true);
+
+      // Se vier sessão, entra direto
+      if (data?.session) {
+        setHint("Conta criada ✅ entrando...");
+        window.location.href = "/index.html";
+        return;
+      }
+
+      // Se não vier sessão, normalmente é confirmação de email
+      setHint("Conta criada ✅ Agora confirma no seu email e depois entra no login.", false);
+
+      passEl.value = "";
+    };
+  </script>
+</body>
+</html>
