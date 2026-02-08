@@ -59,11 +59,9 @@
     </div>
   </div>
 
-  <!-- Supabase JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
-    // PWA: registra SW aqui também (não atrapalha, só ajuda)
     (function registerSw(){
       if (!("serviceWorker" in navigator)) return;
       window.addEventListener("load", async () => {
@@ -71,7 +69,6 @@
       });
     })();
 
-    // Supabase
     const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -90,19 +87,10 @@
       hintEl.style.color = isError ? "#ef4444" : "rgba(11,26,23,.65)";
     }
 
-    function cleanEmail(v){
-      return String(v || "").trim().toLowerCase();
-    }
+    function cleanEmail(v){ return String(v || "").trim().toLowerCase(); }
+    function cleanText(v){ return String(v || "").trim(); }
+    function onlyDigits(v){ return String(v || "").replace(/\D+/g, ""); }
 
-    function cleanText(v){
-      return String(v || "").trim();
-    }
-
-    function onlyDigits(v){
-      return String(v || "").replace(/\D+/g, "");
-    }
-
-    // Se já estiver logado, manda pro app
     (async function boot(){
       try {
         const { data } = await supabaseClient.auth.getSession();
@@ -116,25 +104,16 @@
       }
     })();
 
-    backBtn.onclick = () => {
-      window.location.href = "/login.html";
-    };
+    backBtn.onclick = () => window.location.href = "/login.html";
 
     createBtn.onclick = async () => {
       const name = cleanText(nameEl.value);
-      const phoneRaw = cleanText(phoneEl.value);
-      const phoneDigits = onlyDigits(phoneRaw);
-
+      const phoneDigits = onlyDigits(cleanText(phoneEl.value));
       const email = cleanEmail(emailEl.value);
       const password = passEl.value || "";
 
       if (name.length < 2) return setHint("Coloca seu nome (rapidinho 😄)", true);
-
-      // ✅ telefone obrigatório
-      if (phoneDigits.length < 10) {
-        return setHint("Telefone inválido (coloque DDD + número)", true);
-      }
-
+      if (phoneDigits.length < 10) return setHint("Telefone inválido (coloque DDD + número)", true);
       if (!email.includes("@")) return setHint("Email inválido", true);
       if (password.length < 6) return setHint("Senha muito curta (mín. 6)", true);
 
@@ -143,26 +122,31 @@
       const { data, error } = await supabaseClient.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            name,
-            phone: phoneDigits
-          }
-        }
+        options: { data: { name, phone: phoneDigits } }
       });
 
       if (error) return setHint(error.message || "Erro ao criar conta", true);
 
-      // Se vier sessão, entra direto
+      // ✅ Só grava no profiles se já existir sessão (RLS precisa de auth.uid())
       if (data?.session) {
+        const userId = data.session.user.id;
+
+        const { error: profErr } = await supabaseClient
+          .from("profiles")
+          .upsert(
+            { id: userId, name, phone: phoneDigits, email },
+            { onConflict: "id" }
+          );
+
+        if (profErr) console.warn("Falha ao salvar profiles:", profErr);
+
         setHint("Conta criada ✅ entrando...");
         window.location.href = "/index.html";
         return;
       }
 
-      // Se não vier sessão, normalmente é confirmação de email
+      // Sem sessão = confirmação de email ligada
       setHint("Conta criada ✅ Agora confirma no seu email e depois entra no login.", false);
-
       passEl.value = "";
     };
   </script>
