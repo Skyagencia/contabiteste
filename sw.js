@@ -1,5 +1,5 @@
-const CACHE_NAME = "contabils-pwa-v1";
-
+// sw.js
+const CACHE_NAME = "contabils-v3"; // <- troque esse número quando fizer mudanças grandes
 const ASSETS = [
   "/",
   "/index.html",
@@ -7,36 +7,57 @@ const ASSETS = [
   "/app.js",
   "/manifest.webmanifest",
   "/icon-192.png",
-  "/icon-512.png"
+  "/icon-512.png",
 ];
 
-// instala e faz cache do básico
+// instala e faz cache dos arquivos básicos
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
-  self.skipWaiting();
+  self.skipWaiting(); // baixa e deixa pronto (mas não assume controle ainda)
 });
 
 // ativa e limpa caches antigos
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
-    )
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)));
+      await self.clients.claim(); // controla as abas/PWA abertas
+    })()
   );
-  self.clients.claim();
 });
 
-// cache-first só para arquivos estáticos (não cacheia API)
+// estrategia: cache-first para assets, network-first para chamadas API
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  const url = new URL(req.url);
 
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/export.xlsx")) {
-    return; // deixa ir direto no servidor
+  // não cachear API
+  if (url.pathname.startsWith("/api/") || url.pathname.endsWith(".xlsx")) {
+    return; // deixa ir direto pra rede
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    (async () => {
+      const cached = await caches.match(req);
+      if (cached) return cached;
+
+      const res = await fetch(req);
+      // só cacheia GET ok
+      if (req.method === "GET" && res && res.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(req, res.clone());
+      }
+      return res;
+    })()
   );
+});
+
+// quando a página pedir pra aplicar update
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
