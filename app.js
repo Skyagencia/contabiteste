@@ -196,3 +196,79 @@ if ("serviceWorker" in navigator) {
     }
   });
 }
+
+// ===== PWA Update Banner =====
+(function setupPwaUpdateBanner() {
+  if (!("serviceWorker" in navigator)) return;
+
+  function showUpdateBanner(reg) {
+    // evita duplicar
+    if (document.getElementById("pwaUpdateBanner")) return;
+
+    const banner = document.createElement("div");
+    banner.id = "pwaUpdateBanner";
+    banner.style.position = "fixed";
+    banner.style.top = "12px";
+    banner.style.right = "12px";
+    banner.style.zIndex = "9999";
+    banner.style.background = "rgba(11,18,32,.92)";
+    banner.style.color = "#fff";
+    banner.style.padding = "12px 14px";
+    banner.style.borderRadius = "14px";
+    banner.style.boxShadow = "0 10px 30px rgba(0,0,0,.25)";
+    banner.style.display = "flex";
+    banner.style.alignItems = "center";
+    banner.style.gap = "10px";
+    banner.style.maxWidth = "320px";
+    banner.innerHTML = `
+      <div style="font-size:13px; line-height:1.2;">
+        <strong>Atualização disponível</strong><br/>
+        Clique para atualizar o Contabils.
+      </div>
+      <button id="pwaUpdateBtn" style="
+        border:0; cursor:pointer; padding:10px 12px; border-radius:12px;
+        font-weight:800; background:#10b981; color:#052015;
+      ">Atualizar</button>
+      <button id="pwaCloseBtn" style="
+        border:0; cursor:pointer; padding:8px 10px; border-radius:12px;
+        background:rgba(255,255,255,.12); color:#fff;
+      ">✕</button>
+    `;
+
+    document.body.appendChild(banner);
+
+    document.getElementById("pwaCloseBtn").onclick = () => banner.remove();
+
+    document.getElementById("pwaUpdateBtn").onclick = async () => {
+      if (!reg.waiting) return;
+
+      // pede pro SW aplicar update
+      reg.waiting.postMessage({ type: "SKIP_WAITING" });
+
+      // quando o SW assumir controle, recarrega
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        window.location.reload();
+      });
+    };
+  }
+
+  navigator.serviceWorker.getRegistration().then((reg) => {
+    if (!reg) return;
+
+    // se já tiver um SW novo esperando, mostra
+    if (reg.waiting) showUpdateBanner(reg);
+
+    // quando encontrar update, ele instala e fica "waiting"
+    reg.addEventListener("updatefound", () => {
+      const newWorker = reg.installing;
+      if (!newWorker) return;
+
+      newWorker.addEventListener("statechange", () => {
+        if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+          // existe uma versão nova pronta
+          showUpdateBanner(reg);
+        }
+      });
+    });
+  });
+})();
