@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = "contabils-v2";
+const CACHE_NAME = "contabils-v3";
 const ASSETS = [
   "/",
   "/index.html",
@@ -57,6 +57,7 @@ self.addEventListener("message", (event) => {
     self.skipWaiting();
   }
 });
+
 
 
 
