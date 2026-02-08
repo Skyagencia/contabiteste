@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contabils — Entrar</title>
+
   <link rel="stylesheet" href="/styles.css" />
+  <!-- ✅ IMPORTANTE: manifest no login também (senão não fica “instalável” aqui) -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1220" />
 </head>
 <body>
   <div class="app">
@@ -67,11 +71,24 @@
 
   <script>
     // =========================
+    // 0) PWA: registrar SW também no login (pra página ficar instalável)
+    // =========================
+    (function registerSwOnLogin(){
+      if (!("serviceWorker" in navigator)) return;
+      window.addEventListener("load", async () => {
+        try {
+          await navigator.serviceWorker.register("/sw.js");
+        } catch (e) {
+          console.warn("SW não registrou no login:", e);
+        }
+      });
+    })();
+
+    // =========================
     // 1) CONFIG SUPABASE
     // =========================
     const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
-
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // =========================
@@ -125,10 +142,7 @@
 
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
-      if (error) {
-        // Erros comuns: email não confirmado, credenciais inválidas
-        return setHint(error.message || "Não foi possível entrar", true);
-      }
+      if (error) return setHint(error.message || "Não foi possível entrar", true);
 
       if (data && data.session) {
         setHint("Logado ✅ redirecionando...");
@@ -150,21 +164,10 @@
 
       setHint("Criando conta...");
 
-      const { data, error } = await supabaseClient.auth.signUp({
-        email,
-        password,
-        options: {
-          // Vai usar a URL do projeto configurada no Supabase
-          // (depois a gente deixa isso premium e bonito com redirect certinho)
-        }
-      });
-
+      const { error } = await supabaseClient.auth.signUp({ email, password });
       if (error) return setHint(error.message || "Erro ao criar conta", true);
 
-      // Se Confirm Email estiver ligado, geralmente precisa confirmar antes de logar
       setHint("Conta criada ✅ Agora confirma no email e depois faz login aqui.", false);
-
-      // UX: deixa o usuário no modo login (não muda a tela, só orienta)
       passEl.value = "";
     };
 
@@ -178,13 +181,10 @@
       setHint("Enviando link de recuperação...");
 
       const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-        // Depois a gente cria uma tela bonitinha de "reset.html"
-        // Por enquanto, manda de volta pro login
         redirectTo: `${window.location.origin}/login.html`
       });
 
       if (error) return setHint(error.message || "Erro ao enviar recuperação", true);
-
       setHint("Boa ✅ Link de recuperação enviado pro seu email.", false);
     };
 
@@ -217,8 +217,18 @@
       function show() { promptEl.hidden = false; }
       function hide() { promptEl.hidden = true; }
 
-      closeBtn.addEventListener("click", () => {
+      function markDismissed(){
         localStorage.setItem(DISMISS_KEY, String(Date.now()));
+      }
+
+      closeBtn.addEventListener("click", () => {
+        markDismissed();
+        hide();
+      });
+
+      // ✅ Se instalar, some na hora
+      window.addEventListener("appinstalled", () => {
+        markDismissed();
         hide();
       });
 
@@ -226,16 +236,29 @@
       window.addEventListener("beforeinstallprompt", (e) => {
         e.preventDefault();
         deferredPrompt = e;
+
         subtitleEl.textContent = "Acesso rápido na tela inicial";
         installBtn.textContent = "Instalar";
         show();
       });
 
       installBtn.addEventListener("click", async () => {
-        // iOS fallback: instrução
-        if (!deferredPrompt) {
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
+
+        // iOS/Safari: sem prompt nativo
+        if (isIOS && isSafari) {
           alert("No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.");
-          localStorage.setItem(DISMISS_KEY, String(Date.now()));
+          markDismissed();
+          hide();
+          return;
+        }
+
+        // Se não tem deferredPrompt, o app ainda não está “instalável” nesse momento
+        // (ou o navegador não liberou o prompt). Dá uma instrução correta pra desktop/Android:
+        if (!deferredPrompt) {
+          alert("Se o botão não abrir a instalação, procure o ícone de instalar (⬇️) na barra de endereços do navegador.");
+          markDismissed();
           hide();
           return;
         }
@@ -244,14 +267,13 @@
         await deferredPrompt.userChoice.catch(() => {});
         deferredPrompt = null;
 
-        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+        markDismissed();
         hide();
       });
 
-      // iOS/Safari: sem beforeinstallprompt → mostra como “Como instalar”
+      // iOS/Safari: mostra como “Como instalar”
       const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
+      const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
       if (isIOS && isSafari) {
         subtitleEl.textContent = "iPhone: Compartilhar → Adicionar à Tela de Início";
         installBtn.textContent = "Como instalar";
