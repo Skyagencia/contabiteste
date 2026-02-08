@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "Contabils",
   "short_name": "Contabils",
   "description": "Contador financeiro pessoal",
@@ -7,6 +8,7 @@
   "display": "standalone",
   "background_color": "#0b1220",
   "theme_color": "#0b1220",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",
