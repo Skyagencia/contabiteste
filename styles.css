@@ -354,3 +354,104 @@ input:focus,select:focus{
   max-height: 520px;
   overflow-y: auto;
 }
+
+/* =========================
+   Contabils: Install Prompt (sutil, tipo notificação)
+   ========================= */
+.installPrompt{
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9998;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 10px 12px;
+  border-radius: 16px;
+
+  background: rgba(11,18,32,.92);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 18px 50px rgba(0,0,0,.25);
+
+  backdrop-filter: blur(10px);
+  color: #fff;
+}
+
+.installPrompt__icon{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,.10);
+  flex: 0 0 auto;
+}
+
+.installPrompt__text{
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.installPrompt__title{
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.installPrompt__subtitle{
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: .85;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.installPrompt__actions{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.installPrompt__btn{
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.10);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.installPrompt__btn:hover{
+  background: rgba(255,255,255,.16);
+}
+
+.installPrompt__close{
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.75);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 12px;
+}
+.installPrompt__close:hover{
+  background: rgba(255,255,255,.10);
+  color: #fff;
+}
+
+/* Desktop: fica menor no canto */
+@media (min-width: 900px){
+  .installPrompt{
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+  }
+}
