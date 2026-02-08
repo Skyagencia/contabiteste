@@ -1,41 +1,39 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-
-<link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0b1220">
-
-<link rel="icon" href="/icon-192.png">
-<link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
-
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contabils</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0b1220">
+  <link rel="icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
   <link rel="stylesheet" href="/styles.css" />
 </head>
+
 <body>
   <div class="app">
     <header class="header">
-  <div class="brand">
-    <div class="logo">💰</div>
-    <div>
-      <h1>Contabils</h1>
-      <p class="sub">Seu contador financeiro pessoal (sem julgar seus “pequenos” gastos 😅)</p>
-    </div>
-  </div>
+      <div class="brand">
+        <div class="logo">💰</div>
+        <div>
+          <h1>Contabils</h1>
+          <p class="sub">Seu contador financeiro pessoal (sem julgar seus “pequenos” gastos 😅)</p>
+        </div>
+      </div>
 
-  <div class="month">
-    <label>Mês</label>
-    <input id="monthInput" type="month" />
-  </div>
-<button id="exportBtn" class="btn" type="button">Exportar planilha</button>
+      <div class="month">
+        <label>Mês</label>
+        <input id="monthInput" type="month" />
+      </div>
 
-
-</header>
-
+      <button id="exportBtn" class="btn" type="button">Exportar planilha</button>
+    </header>
 
     <section class="cards">
       <div class="card">
@@ -54,26 +52,23 @@
       </div>
     </section>
 
+    <!-- Painel: filtros + formulário em cima / histórico embaixo -->
     <section class="panel">
-     <section class="panel">
-  <div class="panelHead">
-    <div>
-      <h2>Movimentos</h2>
-      <p>Extrato do mês (entradas e saídas).</p>
-    </div>
+      <div class="panelHead">
+        <div>
+          <h2>Movimentos</h2>
+          <p>Extrato do mês (entradas e saídas).</p>
+        </div>
 
-    <div class="filters">
-      <label style="display:block; font-size:12px; color: var(--muted);">Filtrar por categoria</label>
-      <select id="categoryFilter">
-        <option value="">Todas</option>
-      </select>
-    </div>
-  </div>
+        <div class="filters">
+          <label style="display:block; font-size:12px; color: var(--muted);">Filtrar por categoria</label>
+          <select id="categoryFilter">
+            <option value="">Todas</option>
+          </select>
+        </div>
+      </div>
 
-  <div id="list" class="list"></div>
-</section>
-
-
+      <!-- Formulário primeiro (pra não ficar lá embaixo quando o histórico crescer) -->
       <form id="txForm" class="form">
         <div class="row">
           <div class="field">
@@ -99,7 +94,6 @@
           <div class="field grow">
             <label>Categoria</label>
             <select id="category"></select>
-
           </div>
 
           <div class="field grow">
@@ -113,15 +107,11 @@
           <span id="hint" class="hint"></span>
         </div>
       </form>
+
+      <!-- Histórico por último -->
+      <div id="list" class="list"></div>
     </section>
-
-    <div class="filters">
-  <label style="display:block; font-size:12px; color: var(--muted);">Filtrar por categoria</label>
-  <select id="categoryFilter">
-    <option value="">Todas</option>
-  </select>
-</div>
-
+  </div>
 
   <script src="/app.js"></script>
 </body>
