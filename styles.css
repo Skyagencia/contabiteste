@@ -378,3 +378,7 @@ input:focus,select:focus{
   }
 }
 
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
