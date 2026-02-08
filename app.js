@@ -363,16 +363,113 @@ exportBtn?.addEventListener("click", async () => {
 });
 
 // ===== PWA: registra o Service Worker =====
+// ===== PWA: registra o Service Worker + banner de atualização =====
+function ensureUpdateBanner() {
+  if (document.getElementById("pwaUpdateBanner")) return;
+
+  const banner = document.createElement("div");
+  banner.id = "pwaUpdateBanner";
+  banner.style.cssText = `
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 9999;
+    background: rgba(11,18,32,.98);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+    padding: 14px;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.35);
+    color: #fff;
+  `;
+
+  banner.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:2px;">
+      <strong style="font-size:14px;">Atualização disponível 🚀</strong>
+      <span style="font-size:12px; opacity:.85;">Tem versão nova do Contabils. Quer atualizar agora?</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button id="pwaLaterBtn" type="button"
+        style="background:transparent; border:1px solid rgba(255,255,255,.18); color:#fff; padding:9px 12px; border-radius:10px; cursor:pointer;">
+        Depois
+      </button>
+      <button id="pwaUpdateBtn" type="button"
+        style="background:#fff; border:none; color:#0b1220; padding:9px 12px; border-radius:10px; cursor:pointer; font-weight:700;">
+        Atualizar
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(banner);
+
+  document.getElementById("pwaLaterBtn").addEventListener("click", () => {
+    banner.style.display = "none";
+  });
+
+  return banner;
+}
+
+async function setupPwaUpdateFlow(reg) {
+  const banner = ensureUpdateBanner();
+
+  // Quando o SW controlador mudar (novo SW ativou), recarrega
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
+  function showBannerIfWaiting() {
+    if (!reg.waiting) return;
+
+    banner.style.display = "flex";
+
+    const btn = document.getElementById("pwaUpdateBtn");
+    btn.onclick = () => {
+      // manda o SW em waiting ativar
+      reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    };
+  }
+
+  // Se já existe waiting (update já baixou), mostra
+  showBannerIfWaiting();
+
+  // Detecta updates futuros
+  reg.addEventListener("updatefound", () => {
+    const newSW = reg.installing;
+    if (!newSW) return;
+
+    newSW.addEventListener("statechange", () => {
+      // Instalou e já existe controller => update pronto (waiting)
+      if (newSW.state === "installed" && navigator.serviceWorker.controller) {
+        showBannerIfWaiting();
+      }
+    });
+  });
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      await navigator.serviceWorker.register("/sw.js");
+      const reg = await navigator.serviceWorker.register("/sw.js");
       console.log("✅ Contabils PWA: Service Worker registrado");
+
+      // Opcional: força checar update ao abrir o app
+      reg.update?.().catch(() => {});
+
+      await setupPwaUpdateFlow(reg);
     } catch (e) {
       console.warn("⚠️ Contabils PWA: falha ao registrar Service Worker", e);
     }
   });
 }
+
+
 
 // ===== INIT =====
 (async function init() {
@@ -387,3 +484,4 @@ if ("serviceWorker" in navigator) {
   await loadCategories();
   await load();
 })();
+
