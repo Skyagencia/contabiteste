@@ -349,3 +349,9 @@ input:focus,select:focus{
   }
 }
 
+/* --- Contabils: histórico com rolagem interna (não empurra o formulário) --- */
+.list{
+  max-height: 520px;
+  overflow-y: auto;
+}
+
