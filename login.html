@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contabils — Entrar</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="panel" style="max-width:720px; margin: 60px auto 0;">
+      <div class="panelHead" style="border-bottom:0; padding-bottom: 0;">
+        <div class="brand" style="align-items:center;">
+          <div class="logo" style="overflow:hidden;">
+            <img src="/icon-192.png" alt="Contabils" style="width:100%; height:100%; object-fit:cover;">
+          </div>
+          <div>
+            <h1 style="margin:0;">Contabils</h1>
+            <p class="sub" style="margin-top:6px;">Entre pra acessar seu histórico. Sem drama, sem julgamento 😅</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="form" style="padding-top: 10px;">
+        <div class="row">
+          <div class="field grow">
+            <label>Email</label>
+            <input id="email" type="email" placeholder="seuemail@..." autocomplete="email" />
+          </div>
+          <div class="field grow">
+            <label>Senha</label>
+            <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="loginBtn" class="btn" type="button">Entrar</button>
+          <button id="signupBtn" class="del" type="button">Criar conta</button>
+        </div>
+
+        <div class="actions" style="justify-content:flex-start;">
+          <button id="forgotBtn" class="del" type="button">Esqueci minha senha</button>
+        </div>
+
+        <span id="authHint" class="hint"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase JS (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <script>
+    // =========================
+    // 1) CONFIG SUPABASE
+    // =========================
+    const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // =========================
+    // 2) ELEMENTOS UI
+    // =========================
+    const emailEl = document.getElementById("email");
+    const passEl  = document.getElementById("password");
+    const hintEl  = document.getElementById("authHint");
+
+    const loginBtn  = document.getElementById("loginBtn");
+    const signupBtn = document.getElementById("signupBtn");
+    const forgotBtn = document.getElementById("forgotBtn");
+
+    function setHint(msg, isError=false){
+      hintEl.textContent = msg || "";
+      hintEl.style.color = isError ? "#ef4444" : "rgba(11,26,23,.65)";
+    }
+
+    function cleanEmail(v){
+      return String(v || "").trim().toLowerCase();
+    }
+
+    // =========================
+    // 3) AUTO-REDIRECT SE JÁ TIVER SESSÃO
+    // =========================
+    (async function boot(){
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        if (data && data.session) {
+          window.location.href = "/index.html";
+          return;
+        }
+        setHint("Pronto ✅ Agora é entrar ou criar conta.");
+      } catch (e) {
+        setHint("Erro ao iniciar auth. Veja o console.", true);
+        console.warn(e);
+      }
+    })();
+
+    // =========================
+    // 4) LOGIN
+    // =========================
+    loginBtn.onclick = async () => {
+      const email = cleanEmail(emailEl.value);
+      const password = passEl.value || "";
+
+      if (!email.includes("@")) return setHint("Email inválido", true);
+      if (password.length < 6)  return setHint("Senha muito curta (mín. 6)", true);
+
+      setHint("Entrando...");
+
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        // Erros comuns: email não confirmado, credenciais inválidas
+        return setHint(error.message || "Não foi possível entrar", true);
+      }
+
+      if (data && data.session) {
+        setHint("Logado ✅ redirecionando...");
+        window.location.href = "/index.html";
+      } else {
+        setHint("Confira seu email para confirmar o acesso.", false);
+      }
+    };
+
+    // =========================
+    // 5) SIGNUP (CRIAR CONTA)
+    // =========================
+    signupBtn.onclick = async () => {
+      const email = cleanEmail(emailEl.value);
+      const password = passEl.value || "";
+
+      if (!email.includes("@")) return setHint("Email inválido", true);
+      if (password.length < 6)  return setHint("Senha muito curta (mín. 6)", true);
+
+      setHint("Criando conta...");
+
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          // Vai usar a URL do projeto configurada no Supabase
+          // (depois a gente deixa isso premium e bonito com redirect certinho)
+        }
+      });
+
+      if (error) return setHint(error.message || "Erro ao criar conta", true);
+
+      // Se Confirm Email estiver ligado, geralmente precisa confirmar antes de logar
+      setHint("Conta criada ✅ Agora confirma no email e depois faz login aqui.", false);
+
+      // UX: deixa o usuário no modo login (não muda a tela, só orienta)
+      passEl.value = "";
+    };
+
+    // =========================
+    // 6) RESET DE SENHA
+    // =========================
+    forgotBtn.onclick = async () => {
+      const email = cleanEmail(emailEl.value);
+      if (!email.includes("@")) return setHint("Digite seu email pra resetar a senha", true);
+
+      setHint("Enviando link de recuperação...");
+
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        // Depois a gente cria uma tela bonitinha de "reset.html"
+        // Por enquanto, manda de volta pro login
+        redirectTo: `${window.location.origin}/login.html`
+      });
+
+      if (error) return setHint(error.message || "Erro ao enviar recuperação", true);
+
+      setHint("Boa ✅ Link de recuperação enviado pro seu email.", false);
+    };
+  </script>
+</body>
+</html>
