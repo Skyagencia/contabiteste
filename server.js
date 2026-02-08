@@ -2,6 +2,7 @@ const express = require("express");
 const path = require("path");
 const ExcelJS = require("exceljs");
 const { Pool } = require("pg");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,14 +11,24 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname)); // index.html, styles.css, app.js
 
-// Supabase Postgres
+// ===== Supabase (Auth) =====
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  console.warn("⚠️ SUPABASE_URL / SUPABASE_ANON_KEY não definidos no ambiente (Render).");
+}
+
+// Supabase server client (usado só pra validar token e pegar o user)
+const supabase = createClient(
+  process.env.SUPABASE_URL || "",
+  process.env.SUPABASE_ANON_KEY || ""
+);
+
+// ===== Supabase Postgres =====
 if (!process.env.DATABASE_URL) {
   console.warn("⚠️ DATABASE_URL não definido. Configure no Render (Environment) e/ou no seu terminal.");
 }
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Em produção (Render/Supabase) precisa SSL. Em local pode ser false.
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
@@ -25,8 +36,33 @@ function monthKeyFromDate(dateIso) {
   return dateIso.slice(0, 7); // YYYY-MM
 }
 
+// ===== Auth middleware =====
+// Espera: Authorization: Bearer <access_token>
+async function requireUser(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+    if (!token) {
+      return res.status(401).json({ error: "Não autenticado (faltou token)." });
+    }
+
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return res.status(401).json({ error: "Sessão inválida. Faça login novamente." });
+    }
+
+    req.user = data.user; // { id, email, ... }
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: "Não autenticado.", details: String(e?.message || e) });
+  }
+}
+
 // ===== Schema + Seed (idempotente) =====
 async function ensureSchemaAndSeed() {
+  // categories (globais)
   await pool.query(`
     create table if not exists public.categories (
       id bigserial primary key,
@@ -35,9 +71,13 @@ async function ensureSchemaAndSeed() {
       kind text not null check (kind in ('both','income','expense')),
       is_active boolean not null default true
     );
+  `);
 
+  // transactions (por usuário)
+  await pool.query(`
     create table if not exists public.transactions (
       id bigserial primary key,
+      user_id uuid,
       type text not null check (type in ('income','expense')),
       amount_cents integer not null,
       category text not null,
@@ -45,10 +85,25 @@ async function ensureSchemaAndSeed() {
       date_iso date not null,
       month_key text not null
     );
-
-    create index if not exists idx_transactions_month on public.transactions(month_key);
-    create index if not exists idx_transactions_category on public.transactions(category);
   `);
+
+  // garante coluna user_id se a tabela já existia sem ela
+  await pool.query(`
+    alter table public.transactions
+    add column if not exists user_id uuid;
+  `);
+
+  // se você quiser FK (opcional). Se der erro por permissão, pode comentar.
+  // await pool.query(`
+  //   alter table public.transactions
+  //   add constraint if not exists transactions_user_fk
+  //   foreign key (user_id) references auth.users(id);
+  // `);
+
+  await pool.query(`create index if not exists idx_transactions_month on public.transactions(month_key);`);
+  await pool.query(`create index if not exists idx_transactions_category on public.transactions(category);`);
+  await pool.query(`create index if not exists idx_transactions_user on public.transactions(user_id);`);
+  await pool.query(`create index if not exists idx_transactions_user_month on public.transactions(user_id, month_key);`);
 
   const seedCategories = [
     // gastos
@@ -87,14 +142,13 @@ async function ensureSchemaAndSeed() {
   }
 }
 
-// roda schema/seed no boot (sem travar o server se der erro)
 ensureSchemaAndSeed()
   .then(() => console.log("✅ Schema/seed OK (Supabase)"))
   .catch((e) => console.error("❌ Erro no schema/seed:", e));
 
 // ===== Rotas =====
 
-// healthcheck (teste rápido de conexão)
+// healthcheck
 app.get("/health", async (req, res) => {
   try {
     const r = await pool.query("select 1 as ok");
@@ -109,9 +163,12 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// ===== TRANSAÇÕES (tudo com auth) =====
+
 // listar transações do mês (opcional category)
-app.get("/api/transactions", async (req, res) => {
+app.get("/api/transactions", requireUser, async (req, res) => {
   try {
+    const userId = req.user.id;
     const month = req.query.month || new Date().toISOString().slice(0, 7);
     const category = req.query.category || "";
 
@@ -122,10 +179,10 @@ app.get("/api/transactions", async (req, res) => {
                  to_char(date_iso, 'YYYY-MM-DD') as date_iso,
                  month_key
           from public.transactions
-          where month_key = $1 and category = $2
+          where user_id = $1 and month_key = $2 and category = $3
           order by date_iso desc, id desc
           `,
-          [month, category]
+          [userId, month, category]
         )
       : await pool.query(
           `
@@ -133,10 +190,10 @@ app.get("/api/transactions", async (req, res) => {
                  to_char(date_iso, 'YYYY-MM-DD') as date_iso,
                  month_key
           from public.transactions
-          where month_key = $1
+          where user_id = $1 and month_key = $2
           order by date_iso desc, id desc
           `,
-          [month]
+          [userId, month]
         );
 
     res.json(q.rows);
@@ -146,22 +203,23 @@ app.get("/api/transactions", async (req, res) => {
 });
 
 // resumo do mês
-app.get("/api/summary", async (req, res) => {
+app.get("/api/summary", requireUser, async (req, res) => {
   try {
+    const userId = req.user.id;
     const month = req.query.month || new Date().toISOString().slice(0, 7);
 
     const incomeQ = await pool.query(
       `select coalesce(sum(amount_cents),0) as total
        from public.transactions
-       where month_key = $1 and type='income'`,
-      [month]
+       where user_id = $1 and month_key = $2 and type='income'`,
+      [userId, month]
     );
 
     const expenseQ = await pool.query(
       `select coalesce(sum(amount_cents),0) as total
        from public.transactions
-       where month_key = $1 and type='expense'`,
-      [month]
+       where user_id = $1 and month_key = $2 and type='expense'`,
+      [userId, month]
     );
 
     const income = Number(incomeQ.rows[0].total || 0);
@@ -174,8 +232,9 @@ app.get("/api/summary", async (req, res) => {
 });
 
 // criar transação
-app.post("/api/transactions", async (req, res) => {
+app.post("/api/transactions", requireUser, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { type, amount, category, description, date } = req.body;
 
     if (!["income", "expense"].includes(type)) return res.status(400).json({ error: "Tipo inválido" });
@@ -188,11 +247,11 @@ app.post("/api/transactions", async (req, res) => {
 
     const ins = await pool.query(
       `
-      insert into public.transactions (type, amount_cents, category, description, date_iso, month_key)
-      values ($1, $2, $3, $4, $5::date, $6)
+      insert into public.transactions (user_id, type, amount_cents, category, description, date_iso, month_key)
+      values ($1, $2, $3, $4, $5, $6::date, $7)
       returning id
       `,
-      [type, amountCents, category.trim(), (description || "").trim(), date, monthKey]
+      [userId, type, amountCents, category.trim(), (description || "").trim(), date, monthKey]
     );
 
     res.json({ ok: true, id: ins.rows[0].id });
@@ -201,18 +260,30 @@ app.post("/api/transactions", async (req, res) => {
   }
 });
 
-// deletar transação
-app.delete("/api/transactions/:id", async (req, res) => {
+// deletar transação (só do próprio user)
+app.delete("/api/transactions/:id", requireUser, async (req, res) => {
   try {
+    const userId = req.user.id;
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "ID inválido" });
 
-    await pool.query(`delete from public.transactions where id = $1`, [id]);
+    const del = await pool.query(
+      `delete from public.transactions where id = $1 and user_id = $2`,
+      [id, userId]
+    );
+
+    // se não deletou nada, pode ser pq não é do user
+    if (del.rowCount === 0) {
+      return res.status(404).json({ error: "Transação não encontrada (ou não pertence a você)." });
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "Erro ao deletar transação", details: String(e?.message || e) });
   }
 });
+
+// ===== CATEGORIAS (globais, sem auth) =====
 
 // listar categorias (opcional type=income|expense)
 app.get("/api/categories", async (req, res) => {
@@ -245,7 +316,7 @@ app.get("/api/categories", async (req, res) => {
   }
 });
 
-// criar categoria
+// criar categoria (se quiser, dá pra colocar auth/admin depois)
 app.post("/api/categories", async (req, res) => {
   try {
     const { name, emoji, kind } = req.body;
@@ -265,9 +336,10 @@ app.post("/api/categories", async (req, res) => {
   }
 });
 
-// exportar excel (mês + opcional category) — com totais no final
-app.get("/export.xlsx", async (req, res) => {
+// ===== EXPORT (com auth, por usuário) =====
+app.get("/export.xlsx", requireUser, async (req, res) => {
   try {
+    const userId = req.user.id;
     const month = req.query.month || new Date().toISOString().slice(0, 7);
     const category = req.query.category || "";
 
@@ -277,20 +349,20 @@ app.get("/export.xlsx", async (req, res) => {
           select type, amount_cents, category, description,
                  to_char(date_iso, 'YYYY-MM-DD') as date_iso
           from public.transactions
-          where month_key = $1 and category = $2
+          where user_id = $1 and month_key = $2 and category = $3
           order by date_iso asc, id asc
           `,
-          [month, category]
+          [userId, month, category]
         )
       : await pool.query(
           `
           select type, amount_cents, category, description,
                  to_char(date_iso, 'YYYY-MM-DD') as date_iso
           from public.transactions
-          where month_key = $1
+          where user_id = $1 and month_key = $2
           order by date_iso asc, id asc
           `,
-          [month]
+          [userId, month]
         );
 
     const rows = q.rows;
@@ -348,7 +420,6 @@ app.get("/export.xlsx", async (req, res) => {
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
-    // Stream (ok em local; se no Render der ruim, troque por writeBuffer)
     await wb.xlsx.write(res);
     res.end();
   } catch (e) {
