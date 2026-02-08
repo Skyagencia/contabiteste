@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = "contabils-v3"; // <- troque esse número quando fizer mudanças grandes
+const CACHE_NAME = "contabils-v4"; // <- troque esse número quando fizer mudanças grandes
 const ASSETS = [
   "/",
   "/index.html",
@@ -61,3 +61,4 @@ self.addEventListener("message", (event) => {
     self.skipWaiting();
   }
 });
+
