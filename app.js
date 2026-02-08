@@ -1,37 +1,5 @@
-// app.js
-
-// ===== Helpers Supabase =====
-function getSb() {
-  return window.supabaseClient || window.supabase || null;
-}
-
-async function requireAuthOrRedirect() {
-  const sb = getSb();
-
-  if (!sb?.auth) {
-    console.warn("Supabase client não encontrado ainda (sb.auth).");
-    // se isso acontecer, é porque o script do supabase/client não carregou
-    // ou o window.supabaseClient não foi criado
-    return false;
-  }
-
-  const { data, error } = await sb.auth.getSession();
-  if (error) {
-    console.warn("Erro ao obter sessão:", error);
-  }
-
-  const session = data?.session;
-
-  if (!session) {
-    const next = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.replace(`/login.html?next=${next}`);
-    return false;
-  }
-
-  return true;
-}
-
-// ===== DOM =====
+// ====== Elementos ======
+const logoutBtn = document.getElementById("logoutBtn");
 const exportBtn = document.getElementById("exportBtn");
 const categorySelect = document.getElementById("category");
 const categoryFilter = document.getElementById("categoryFilter");
@@ -49,9 +17,75 @@ const categoryEl = document.getElementById("category");
 const descriptionEl = document.getElementById("description");
 const dateEl = document.getElementById("date");
 
+// ====== Helpers ======
+function formatBRL(cents) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function todayISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+// Espera o Supabase aparecer no window (evita "undefined" em cache/ordem de script)
+async function waitForSupabaseClient({ tries = 50, delayMs = 80 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    const sb = window.supabaseClient || window.supabase;
+    if (sb && sb.auth) return sb;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
+// Pega headers auth (Bearer token)
+async function authHeaders() {
+  const sb = await waitForSupabaseClient();
+  if (!sb) return {}; // vai falhar em requireAuthOrRedirect mesmo
+
+  const { data } = await sb.auth.getSession();
+  const token = data?.session?.access_token;
+
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Wrapper fetch com auth
+async function fetchAuth(url, opts = {}) {
+  const headers = await authHeaders();
+  const mergedHeaders = { ...(opts.headers || {}), ...headers };
+  const res = await fetch(url, { ...opts, headers: mergedHeaders });
+  return res;
+}
+
+// ====== Auth Gate (impede abrir o app sem sessão) ======
+async function requireAuthOrRedirect() {
+  const sb = await waitForSupabaseClient();
+
+  if (!sb || !sb.auth) {
+    console.warn("Supabase client não encontrado ainda.");
+    return false; // não quebra a página
+  }
+
+  const { data } = await sb.auth.getSession();
+  const session = data?.session;
+
+  if (!session) {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.replace(`/login.html?next=${next}`);
+    return false;
+  }
+
+  return true;
+}
+
 // ===== Logout =====
 document.getElementById("logoutBtn")?.addEventListener("click", async () => {
-  const sb = getSb();
+  const sb = window.supabaseClient || window.supabase;
+
   const btn = document.getElementById("logoutBtn");
   const oldText = btn?.textContent || "Sair";
 
@@ -69,7 +103,6 @@ document.getElementById("logoutBtn")?.addEventListener("click", async () => {
     const { error } = await sb.auth.signOut();
     if (error) throw error;
 
-    // joga pro login
     window.location.href = "/login.html";
   } catch (e) {
     console.error(e);
@@ -81,21 +114,7 @@ document.getElementById("logoutBtn")?.addEventListener("click", async () => {
   }
 });
 
-// ===== Util =====
-function formatBRL(cents) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function todayISO() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function currentMonth() {
-  return new Date().toISOString().slice(0, 7);
-}
-
+// ====== App ======
 function animateNumber(el, toCents) {
   const fromText = el.getAttribute("data-cents");
   const from = fromText ? Number(fromText) : 0;
@@ -109,7 +128,6 @@ function animateNumber(el, toCents) {
     const eased = 1 - Math.pow(1 - t, 3);
     const value = Math.round(from + (to - from) * eased);
     el.textContent = formatBRL(value);
-
     if (t < 1) requestAnimationFrame(step);
     else el.setAttribute("data-cents", String(to));
   }
@@ -117,15 +135,26 @@ function animateNumber(el, toCents) {
   requestAnimationFrame(step);
 }
 
-// ===== Core =====
 async function load() {
   const month = monthInput.value || currentMonth();
   const cat = categoryFilter?.value || "";
 
   const [sumRes, txRes] = await Promise.all([
-    fetch(`/api/summary?month=${month}`),
-    fetch(`/api/transactions?month=${month}&category=${encodeURIComponent(cat)}`),
+    fetchAuth(`/api/summary?month=${encodeURIComponent(month)}`),
+    fetchAuth(`/api/transactions?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`),
   ]);
+
+  if (!sumRes.ok) {
+    const err = await sumRes.json().catch(() => ({}));
+    hint.textContent = err?.error || "Erro ao carregar resumo";
+    return;
+  }
+
+  if (!txRes.ok) {
+    const err = await txRes.json().catch(() => ({}));
+    hint.textContent = err?.error || "Erro ao carregar transações";
+    return;
+  }
 
   const summary = await sumRes.json();
   const txs = await txRes.json();
@@ -160,7 +189,12 @@ async function load() {
     `;
 
     div.querySelector(".del").addEventListener("click", async () => {
-      await fetch(`/api/transactions/${tx.id}`, { method: "DELETE" });
+      const delRes = await fetchAuth(`/api/transactions/${tx.id}`, { method: "DELETE" });
+      if (!delRes.ok) {
+        const err = await delRes.json().catch(() => ({}));
+        alert(err?.error || "Não consegui apagar agora.");
+        return;
+      }
       load();
     });
 
@@ -169,8 +203,9 @@ async function load() {
 }
 
 async function loadCategories() {
+  // categorias são globais (não precisam auth)
   const type = typeEl.value; // income/expense
-  const res = await fetch(`/api/categories?type=${type}`);
+  const res = await fetch(`/api/categories?type=${encodeURIComponent(type)}`);
   const cats = await res.json();
 
   // select de lançamento
@@ -182,11 +217,11 @@ async function loadCategories() {
     categorySelect.appendChild(opt);
   }
 
-  // filtro (todas categorias, independente do tipo)
+  // filtro (todas categorias)
   const allRes = await fetch(`/api/categories`);
   const allCats = await allRes.json();
 
-  const current = categoryFilter?.value || "";
+  const current = categoryFilter.value || "";
   categoryFilter.innerHTML = `<option value="">Todas</option>`;
   for (const c of allCats) {
     const opt = document.createElement("option");
@@ -197,8 +232,8 @@ async function loadCategories() {
   categoryFilter.value = current;
 }
 
-// ===== Events (fora do loadCategories pra não duplicar) =====
-form?.addEventListener("submit", async (e) => {
+// ====== Eventos ======
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
   hint.textContent = "";
 
@@ -210,13 +245,14 @@ form?.addEventListener("submit", async (e) => {
     date: dateEl.value,
   };
 
-  const res = await fetch("/api/transactions", {
+  const res = await fetchAuth("/api/transactions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+
   if (!res.ok) {
     hint.textContent = data.error || "Erro ao salvar";
     return;
@@ -229,19 +265,41 @@ form?.addEventListener("submit", async (e) => {
   load();
 });
 
-monthInput?.addEventListener("change", load);
+monthInput.addEventListener("change", load);
 
-typeEl?.addEventListener("change", async () => {
+typeEl.addEventListener("change", async () => {
   await loadCategories();
 });
 
 categoryFilter?.addEventListener("change", load);
 
-exportBtn?.addEventListener("click", () => {
-  const month = monthInput.value || currentMonth();
-  const cat = categoryFilter?.value || "";
-  const url = `/export.xlsx?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`;
-  window.location.href = url;
+// ===== Export (com auth via blob) =====
+exportBtn.addEventListener("click", async () => {
+  try {
+    const month = monthInput.value || currentMonth();
+    const cat = categoryFilter?.value || "";
+    const url = `/export.xlsx?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`;
+
+    const res = await fetchAuth(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err?.error || "Não consegui exportar agora.");
+      return;
+    }
+
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    const safeCat = cat ? `_${String(cat).replace(/[^\w\-]+/g, "_")}` : "";
+    a.download = `contabils_extrato_${month}${safeCat}.xlsx`;
+    a.href = URL.createObjectURL(blob);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao exportar. Tenta de novo.");
+  }
 });
 
 // ===== PWA: registra o Service Worker =====
@@ -256,13 +314,15 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// ===== BOOT: trava o app sem login =====
-(async () => {
-  const ok = await requireAuthOrRedirect();
-  if (!ok) return;
-
+// ===== INIT =====
+(async function init() {
+  // init inputs
   monthInput.value = currentMonth();
   dateEl.value = todayISO();
+
+  // trava o app se não tiver logado
+  const ok = await requireAuthOrRedirect();
+  if (!ok) return;
 
   await loadCategories();
   await load();
