@@ -21,7 +21,7 @@ self.addEventListener("install", (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.addAll(APP_SHELL);
-      // ⚠️ NÃO chamar skipWaiting aqui
+      // ⚠️ NÃO chamar skipWaiting aqui (pra aparecer o banner)
     })()
   );
 });
@@ -59,17 +59,27 @@ self.addEventListener("fetch", (event) => {
     req.mode === "navigate" ||
     (req.headers.get("accept") || "").includes("text/html");
 
-  // HTML: network-first
+  // ✅ HTML: network-first (cacheia a navegação atual + /index.html)
   if (isHTML) {
     event.respondWith(
       (async () => {
+        const cache = await caches.open(CACHE_NAME);
+
         try {
           const fresh = await fetch(req);
-          const cache = await caches.open(CACHE_NAME);
-          cache.put("/", fresh.clone());
+
+          // cacheia a request atual (ex: "/", "/index.html", "/login.html")
+          cache.put(req, fresh.clone());
+
+          // garante também o index.html (melhor fallback offline)
+          if (url.pathname === "/" || url.pathname.endsWith(".html")) {
+            // se for HTML, tenta manter o index atualizado também
+            cache.put("/index.html", fresh.clone());
+          }
+
           return fresh;
         } catch {
-          const cache = await caches.open(CACHE_NAME);
+          // fallback offline: tenta o cache da request, senão index.html
           return (await cache.match(req)) || (await cache.match("/index.html"));
         }
       })()
@@ -92,4 +102,3 @@ self.addEventListener("fetch", (event) => {
     })()
   );
 });
-
