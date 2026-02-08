@@ -47,6 +47,21 @@
     </div>
   </div>
 
+  <!-- ✅ Prompt sutil de instalação (tipo notificação) -->
+  <div id="installPrompt" class="installPrompt" hidden>
+    <div class="installPrompt__icon" aria-hidden="true">⬇️</div>
+
+    <div class="installPrompt__text">
+      <div class="installPrompt__title">Instalar Contabils</div>
+      <div id="installSubtitle" class="installPrompt__subtitle">Acesso rápido na tela inicial</div>
+    </div>
+
+    <div class="installPrompt__actions">
+      <button id="installBtn" class="installPrompt__btn" type="button">Instalar</button>
+      <button id="installClose" class="installPrompt__close" type="button" aria-label="Fechar">✕</button>
+    </div>
+  </div>
+
   <!-- Supabase JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -172,6 +187,77 @@
 
       setHint("Boa ✅ Link de recuperação enviado pro seu email.", false);
     };
+
+    // =========================
+    // 7) PWA INSTALL (sutil no login)
+    // =========================
+    (function setupInstallPrompt(){
+      const promptEl = document.getElementById("installPrompt");
+      const installBtn = document.getElementById("installBtn");
+      const closeBtn = document.getElementById("installClose");
+      const subtitleEl = document.getElementById("installSubtitle");
+
+      if (!promptEl || !installBtn || !closeBtn || !subtitleEl) return;
+
+      const DISMISS_KEY = "contabils_install_dismissed_at";
+      const DISMISS_DAYS = 7;
+
+      const now = Date.now();
+      const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
+      const dismissedRecently = dismissedAt && (now - dismissedAt) < DISMISS_DAYS * 24 * 60 * 60 * 1000;
+
+      const isStandalone =
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        window.navigator.standalone === true;
+
+      if (isStandalone || dismissedRecently) return;
+
+      let deferredPrompt = null;
+
+      function show() { promptEl.hidden = false; }
+      function hide() { promptEl.hidden = true; }
+
+      closeBtn.addEventListener("click", () => {
+        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+        hide();
+      });
+
+      // Android/Chrome/Edge: evento oficial
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        subtitleEl.textContent = "Acesso rápido na tela inicial";
+        installBtn.textContent = "Instalar";
+        show();
+      });
+
+      installBtn.addEventListener("click", async () => {
+        // iOS fallback: instrução
+        if (!deferredPrompt) {
+          alert("No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.");
+          localStorage.setItem(DISMISS_KEY, String(Date.now()));
+          hide();
+          return;
+        }
+
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice.catch(() => {});
+        deferredPrompt = null;
+
+        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+        hide();
+      });
+
+      // iOS/Safari: sem beforeinstallprompt → mostra como “Como instalar”
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+      if (isIOS && isSafari) {
+        subtitleEl.textContent = "iPhone: Compartilhar → Adicionar à Tela de Início";
+        installBtn.textContent = "Como instalar";
+        show();
+      }
+    })();
   </script>
 </body>
 </html>
