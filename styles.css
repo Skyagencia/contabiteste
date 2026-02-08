@@ -349,21 +349,3 @@ input:focus,select:focus{
   }
 }
 
-/* === AJUSTE DE ORDEM: FORM EM CIMA, HISTÓRICO EM BAIXO === */
-
-.panel {
-  display: flex;
-  flex-direction: column;
-}
-
-/* formulário sempre primeiro */
-.form {
-  order: 1;
-}
-
-/* histórico sempre depois */
-.list {
-  order: 2;
-  max-height: 520px; /* pode ajustar */
-  overflow-y: auto;
-}
