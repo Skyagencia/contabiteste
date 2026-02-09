@@ -1,432 +1,568 @@
-const express = require("express");
-const path = require("path");
-const ExcelJS = require("exceljs");
-const { Pool } = require("pg");
-const { createClient } = require("@supabase/supabase-js");
+:root{
+  --bg1:#bff7e5;
+  --bg2:#9ee6ff;
+  --bg3:#c9f7d8;
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+  --ink:#0b1a17;
+  --muted:rgba(11,26,23,.65);
 
-// middlewares
-app.use(express.json());
-app.use(express.static(__dirname)); // index.html, styles.css, app.js
+  --panel: rgba(255,255,255,.62);
+  --panel2: rgba(255,255,255,.78);
+  --stroke: rgba(255,255,255,.55);
 
-// ===== Supabase (Auth) =====
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-  console.warn("⚠️ SUPABASE_URL / SUPABASE_ANON_KEY não definidos no ambiente (Render).");
+  --shadow: 0 18px 45px rgba(0,0,0,.12);
+  --shadow2: 0 10px 25px rgba(0,0,0,.10);
+
+  --good:#10b981;
+  --bad:#ef4444;
+
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 16px;
 }
 
-// Supabase server client (usado só pra validar token e pegar o user)
-const supabase = createClient(
-  process.env.SUPABASE_URL || "",
-  process.env.SUPABASE_ANON_KEY || ""
-);
-
-// ===== Supabase Postgres =====
-if (!process.env.DATABASE_URL) {
-  console.warn("⚠️ DATABASE_URL não definido. Configure no Render (Environment) e/ou no seu terminal.");
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  color:var(--ink);
+  background:
+    radial-gradient(900px 600px at 15% 10%, rgba(255,255,255,.65), transparent 55%),
+    radial-gradient(900px 600px at 85% 15%, rgba(255,255,255,.55), transparent 60%),
+    linear-gradient(135deg, var(--bg1), var(--bg2) 45%, var(--bg3));
+  overflow-x:hidden;
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-});
-
-function monthKeyFromDate(dateIso) {
-  return dateIso.slice(0, 7); // YYYY-MM
+/* blobs decorativos */
+body::before, body::after{
+  content:"";
+  position:fixed;
+  inset:auto;
+  width:460px; height:460px;
+  filter: blur(35px);
+  opacity:.55;
+  z-index:-1;
+  border-radius: 999px;
+}
+body::before{
+  left:-140px; top:120px;
+  background: radial-gradient(circle at 30% 30%, rgba(16,185,129,.55), transparent 60%);
+}
+body::after{
+  right:-170px; top:-70px;
+  background: radial-gradient(circle at 30% 30%, rgba(59,130,246,.45), transparent 60%);
 }
 
-// ===== Auth middleware =====
-// Espera: Authorization: Bearer <access_token>
-async function requireUser(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+.app{
+  max-width: 1080px;
+  margin: 28px auto;
+  padding: 0 18px 42px;
+}
 
-    if (!token) {
-      return res.status(401).json({ error: "Não autenticado (faltou token)." });
-    }
+.header{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom: 14px;
+}
 
-    const { data, error } = await supabase.auth.getUser(token);
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.logo{
+  width:48px;height:48px;
+  border-radius: 18px;
+  display:grid;place-items:center;
+  background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.55));
+  border:1px solid var(--stroke);
+  box-shadow: var(--shadow2);
+}
+h1{
+  margin:0;
+  font-size: 26px;
+  letter-spacing:.2px;
+}
+.sub{
+  margin:6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 
-    if (error || !data?.user) {
-      return res.status(401).json({ error: "Sessão inválida. Faça login novamente." });
-    }
+.month{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow2);
+  backdrop-filter: blur(10px);
+}
 
-    req.user = data.user; // { id, email, ... }
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: "Não autenticado.", details: String(e?.message || e) });
+label{font-size:12px;color:var(--muted)}
+
+input,select,button{
+  font: inherit;
+}
+
+input,select{
+  border:1px solid rgba(11,26,23,.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.85);
+  outline:none;
+}
+input:focus,select:focus{
+  box-shadow: 0 0 0 4px rgba(16,185,129,.18);
+  border-color: rgba(16,185,129,.45);
+}
+
+/* Cards topo */
+.cards{
+  display:grid;
+  grid-template-columns: 1.1fr 1.1fr 1.4fr;
+  gap:14px;
+  margin: 10px 0 16px;
+}
+
+.card{
+  background: var(--panel2);
+  border:1px solid var(--stroke);
+  border-radius: var(--radius-xl);
+  padding: 18px 18px 16px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  transform: translateY(0);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.card:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 22px 55px rgba(0,0,0,.14);
+}
+
+.card .label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.card strong{
+  font-size: 22px;
+  letter-spacing: .2px;
+}
+.pill{
+  padding: 6px 10px;
+  border-radius: 999px;
+  border:1px solid rgba(11,26,23,.10);
+  background: rgba(255,255,255,.7);
+  font-size: 12px;
+}
+
+/* Painéis */
+.panel{
+  border-radius: var(--radius-xl);
+  background: var(--panel2);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+  backdrop-filter: blur(12px);
+  margin-bottom: 14px;
+}
+
+.panelHead{
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid rgba(11,26,23,.08);
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+}
+.panelHead h2{
+  margin:0;
+  font-size: 15px;
+}
+.panelHead p{
+  margin:6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.form{
+  padding: 14px 18px 18px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width: 170px;
+}
+.grow{flex:1; min-width: 240px;}
+
+.actions{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.btn{
+  border:0;
+  cursor:pointer;
+  padding: 11px 16px;
+  border-radius: 16px;
+  font-weight: 800;
+  color: #052015;
+  background: linear-gradient(180deg, rgba(16,185,129,.95), rgba(16,185,129,.75));
+  box-shadow: 0 12px 30px rgba(16,185,129,.22);
+  transition: transform .10s ease, filter .18s ease;
+}
+.btn:hover{ filter:saturate(1.05); }
+.btn:active{ transform: scale(.98); }
+
+.hint{ color: var(--muted); font-size: 12px; }
+
+/* Lista */
+.list{ padding: 6px 0; }
+
+.item{
+  display:grid;
+  grid-template-columns: 110px 110px 1fr auto;
+  gap:12px;
+  align-items:center;
+  padding: 12px 18px;
+  border-top: 1px solid rgba(11,26,23,.08);
+  animation: pop .22s ease both;
+}
+@keyframes pop{
+  from{ opacity:0; transform: translateY(6px); }
+  to{ opacity:1; transform: translateY(0); }
+}
+
+.badge{
+  width: fit-content;
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.75);
+  border:1px solid rgba(11,26,23,.10);
+  color: rgba(11,26,23,.75);
+}
+
+.amount{
+  font-weight: 900;
+  letter-spacing:.2px;
+  white-space:nowrap;
+}
+.amount.income{ color: var(--good); }
+.amount.expense{ color: var(--bad); }
+
+.meta{
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.del{
+  border:1px solid rgba(11,26,23,.12);
+  background: rgba(255,255,255,.7);
+  border-radius: 14px;
+  padding: 9px 11px;
+  cursor:pointer;
+  transition: transform .10s ease, background .18s ease;
+}
+.del:hover{ background: rgba(255,255,255,.85); }
+.del:active{ transform: scale(.98); }
+
+@media (max-width: 920px){
+  .cards{ grid-template-columns: 1fr; }
+  .item{ grid-template-columns: 100px 1fr; grid-template-rows:auto auto; }
+}
+
+@media (max-width: 768px) {
+
+  .header{
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .month{
+    width: 100%;
+  }
+
+  .cards{
+    grid-template-columns: 1fr;
+  }
+
+  .panel{
+    border-radius: 22px;
+  }
+
+  .row{
+    flex-direction: column;
+  }
+
+  .field,
+  .grow{
+    width: 100%;
+    min-width: unset;
+  }
+
+  .actions{
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn{
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+  }
+
+  .item{
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .amount{
+    font-size: 16px;
+  }
+
+  .del{
+    width: 100%;
   }
 }
 
-// ===== Schema + Seed (idempotente) =====
-async function ensureSchemaAndSeed() {
-  // categories (globais)
-  await pool.query(`
-    create table if not exists public.categories (
-      id bigserial primary key,
-      name text not null unique,
-      emoji text not null,
-      kind text not null check (kind in ('both','income','expense')),
-      is_active boolean not null default true
-    );
-  `);
-
-  // transactions (por usuário)
-  await pool.query(`
-    create table if not exists public.transactions (
-      id bigserial primary key,
-      user_id uuid,
-      type text not null check (type in ('income','expense')),
-      amount_cents integer not null,
-      category text not null,
-      description text,
-      date_iso date not null,
-      month_key text not null
-    );
-  `);
-
-  // garante coluna user_id se a tabela já existia sem ela
-  await pool.query(`
-    alter table public.transactions
-    add column if not exists user_id uuid;
-  `);
-
-  // se você quiser FK (opcional). Se der erro por permissão, pode comentar.
-  // await pool.query(`
-  //   alter table public.transactions
-  //   add constraint if not exists transactions_user_fk
-  //   foreign key (user_id) references auth.users(id);
-  // `);
-
-  await pool.query(`create index if not exists idx_transactions_month on public.transactions(month_key);`);
-  await pool.query(`create index if not exists idx_transactions_category on public.transactions(category);`);
-  await pool.query(`create index if not exists idx_transactions_user on public.transactions(user_id);`);
-  await pool.query(`create index if not exists idx_transactions_user_month on public.transactions(user_id, month_key);`);
-
-  const seedCategories = [
-    // gastos
-    { name: "Mercado", emoji: "🛒", kind: "expense" },
-    { name: "Alimentação", emoji: "🍽️", kind: "expense" },
-    { name: "Gasolina", emoji: "⛽", kind: "expense" },
-    { name: "Transporte", emoji: "🚌", kind: "expense" },
-    { name: "Carro", emoji: "🚗", kind: "expense" },
-    { name: "Pet", emoji: "🐶", kind: "expense" },
-    { name: "Saúde", emoji: "🩺", kind: "expense" },
-    { name: "Farmácia", emoji: "💊", kind: "expense" },
-    { name: "Casa", emoji: "🏠", kind: "expense" },
-    { name: "Contas", emoji: "📄", kind: "expense" },
-    { name: "Internet/Telefone", emoji: "📶", kind: "expense" },
-    { name: "Streaming", emoji: "🎬", kind: "expense" },
-    { name: "Lazer", emoji: "🎉", kind: "expense" },
-    { name: "Educação", emoji: "📚", kind: "expense" },
-    { name: "Vestuário", emoji: "👕", kind: "expense" },
-    { name: "Assinaturas", emoji: "🔁", kind: "expense" },
-    { name: "Imprevistos", emoji: "🚨", kind: "expense" },
-
-    // entradas
-    { name: "Salário", emoji: "💼", kind: "income" },
-    { name: "Freela", emoji: "🧑‍💻", kind: "income" },
-    { name: "Vendas", emoji: "💰", kind: "income" },
-    { name: "Cashback", emoji: "🪙", kind: "income" },
-  ];
-
-  for (const c of seedCategories) {
-    await pool.query(
-      `insert into public.categories (name, emoji, kind)
-       values ($1, $2, $3)
-       on conflict (name) do nothing`,
-      [c.name, c.emoji, c.kind]
-    );
-  }
+/* --- Contabils: histórico com rolagem interna (não empurra o formulário) --- */
+.list{
+  max-height: 520px;
+  overflow-y: auto;
 }
 
-ensureSchemaAndSeed()
-  .then(() => console.log("✅ Schema/seed OK (Supabase)"))
-  .catch((e) => console.error("❌ Erro no schema/seed:", e));
 
-// ===== Rotas =====
+/* =========================
+   Avatar Premium (central)
+   ========================= */
+.heroAvatarWrap{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  margin: 18px 0 8px;
+}
 
-// healthcheck
-app.get("/health", async (req, res) => {
-  try {
-    const r = await pool.query("select 1 as ok");
-    res.json({ ok: true, db: r.rows[0].ok });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
-});
+.heroAvatar{
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.65);
+  background: rgba(255,255,255,.55);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 55px rgba(0,0,0,.18);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transform: translateY(0);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
 
-// home
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+.heroAvatar:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 24px 65px rgba(0,0,0,.22);
+}
 
-// ===== TRANSAÇÕES (tudo com auth) =====
+/* glow (fica invisível até ativar status-*) */
+.heroAvatar::before{
+  content:"";
+  position:absolute;
+  inset:-18px;
+  border-radius:999px;
+  opacity: 0;
+  transition: opacity .18s ease;
+  filter: blur(10px);
+}
 
-// listar transações do mês (opcional category)
-app.get("/api/transactions", requireUser, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
-    const category = req.query.category || "";
+.heroAvatarInner{
+  width: 100%;
+  height: 100%;
+  display:grid;
+  place-items:center;
+  font-size: 46px;
+  border-radius: 999px;
+  overflow:hidden;
+  background: radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.75), rgba(255,255,255,.35));
+}
 
-    const q = category
-      ? await pool.query(
-          `
-          select id, type, amount_cents, category, description,
-                 to_char(date_iso, 'YYYY-MM-DD') as date_iso,
-                 month_key
-          from public.transactions
-          where user_id = $1 and month_key = $2 and category = $3
-          order by date_iso desc, id desc
-          `,
-          [userId, month, category]
-        )
-      : await pool.query(
-          `
-          select id, type, amount_cents, category, description,
-                 to_char(date_iso, 'YYYY-MM-DD') as date_iso,
-                 month_key
-          from public.transactions
-          where user_id = $1 and month_key = $2
-          order by date_iso desc, id desc
-          `,
-          [userId, month]
-        );
+.heroAvatarInner img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
 
-    res.json(q.rows);
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao listar transações", details: String(e?.message || e) });
-  }
-});
+.heroAvatarLabel{
+  font-size: 12px;
+  color: rgba(11,26,23,.65);
+  text-align:center;
+}
 
-// resumo do mês
-app.get("/api/summary", requireUser, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+/* =========================
+   Avatar Premium (central)
+   ========================= */
+.heroAvatarWrap{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  margin: 18px 0 8px;
+}
 
-    const incomeQ = await pool.query(
-      `select coalesce(sum(amount_cents),0) as total
-       from public.transactions
-       where user_id = $1 and month_key = $2 and type='income'`,
-      [userId, month]
-    );
+.heroAvatar{
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.65);
+  background: rgba(255,255,255,.55);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 55px rgba(0,0,0,.18);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  overflow: visible; /* ✅ importante: deixa o neon existir "fora" */
+  transform: translateY(0);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
 
-    const expenseQ = await pool.query(
-      `select coalesce(sum(amount_cents),0) as total
-       from public.transactions
-       where user_id = $1 and month_key = $2 and type='expense'`,
-      [userId, month]
-    );
+.heroAvatar:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 24px 65px rgba(0,0,0,.22);
+}
 
-    const income = Number(incomeQ.rows[0].total || 0);
-    const expense = Number(expenseQ.rows[0].total || 0);
+/* ✅ NEON/HALO: fica atrás do conteúdo (não pode cobrir a foto) */
+.heroAvatar::before{
+  content:"";
+  position:absolute;
+  inset:-22px;              /* brilho só fora */
+  border-radius:999px;
+  pointer-events:none;
+  opacity:0;
+  transition: opacity .18s ease;
+  filter: blur(18px);
+  z-index: 0;               /* ✅ atrás de tudo */
+}
 
-    res.json({ month, income, expense, balance: income - expense });
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao calcular resumo", details: String(e?.message || e) });
-  }
-});
+/* ✅ conteúdo (emoji/foto) sempre na frente do neon */
+.heroAvatarInner{
+  position: relative;
+  z-index: 2;
 
-// criar transação
-app.post("/api/transactions", requireUser, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { type, amount, category, description, date } = req.body;
+  width: 100%;
+  height: 100%;
+  display:grid;
+  place-items:center;
+  font-size: 46px;
+  border-radius: 999px;
+  overflow:hidden;
 
-    if (!["income", "expense"].includes(type)) return res.status(400).json({ error: "Tipo inválido" });
-    if (!amount || isNaN(amount) || Number(amount) <= 0) return res.status(400).json({ error: "Valor inválido" });
-    if (!category || typeof category !== "string") return res.status(400).json({ error: "Categoria inválida" });
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "Data inválida (YYYY-MM-DD)" });
+  /* “vidro” por cima do fundo, mas NÃO do neon (neon tá atrás) */
+  background: radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.75), rgba(255,255,255,.35));
+}
 
-    const amountCents = Math.round(Number(String(amount).replace(",", ".")) * 100);
-    const monthKey = monthKeyFromDate(date);
+.heroAvatarInner img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
 
-    const ins = await pool.query(
-      `
-      insert into public.transactions (user_id, type, amount_cents, category, description, date_iso, month_key)
-      values ($1, $2, $3, $4, $5, $6::date, $7)
-      returning id
-      `,
-      [userId, type, amountCents, category.trim(), (description || "").trim(), date, monthKey]
-    );
+.heroAvatarLabel{
+  font-size: 12px;
+  color: rgba(11,26,23,.65);
+  text-align:center;
+}
 
-    res.json({ ok: true, id: ins.rows[0].id });
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao criar transação", details: String(e?.message || e) });
-  }
-});
+/* =========================
+   NEON FORTE – STATUS (halo externo)
+   ========================= */
 
-// deletar transação (só do próprio user)
-app.delete("/api/transactions/:id", requireUser, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "ID inválido" });
+/* 🟢 economizando */
+.heroAvatar.status-good{
+  border-color: #10b981;
+  box-shadow:
+    0 0 12px rgba(16,185,129,.95),
+    0 0 28px rgba(16,185,129,.9),
+    0 0 60px rgba(16,185,129,.8),
+    0 18px 55px rgba(0,0,0,.25);
+}
+.heroAvatar.status-good::before{
+  opacity: 1;
+  background: radial-gradient(circle,
+    rgba(16,185,129,1) 0%,
+    rgba(16,185,129,.9) 42%,
+    transparent 70%);
+}
 
-    const del = await pool.query(
-      `delete from public.transactions where id = $1 and user_id = $2`,
-      [id, userId]
-    );
+/* 🟡 empatando */
+.heroAvatar.status-warn{
+  border-color: #f59e0b;
+  box-shadow:
+    0 0 12px rgba(245,158,11,.95),
+    0 0 28px rgba(245,158,11,.9),
+    0 0 60px rgba(245,158,11,.8),
+    0 18px 55px rgba(0,0,0,.25);
+}
+.heroAvatar.status-warn::before{
+  opacity: 1;
+  background: radial-gradient(circle,
+    rgba(245,158,11,1) 0%,
+    rgba(245,158,11,.9) 42%,
+    transparent 70%);
+}
 
-    // se não deletou nada, pode ser pq não é do user
-    if (del.rowCount === 0) {
-      return res.status(404).json({ error: "Transação não encontrada (ou não pertence a você)." });
-    }
+/* 🔴 negativo */
+.heroAvatar.status-bad{
+  border-color: #ef4444;
+  box-shadow:
+    0 0 12px rgba(239,68,68,.98),
+    0 0 30px rgba(239,68,68,.92),
+    0 0 70px rgba(239,68,68,.82),
+    0 18px 55px rgba(0,0,0,.25);
+}
+.heroAvatar.status-bad::before{
+  opacity: 1;
+  background: radial-gradient(circle,
+    rgba(239,68,68,1) 0%,
+    rgba(239,68,68,.92) 42%,
+    transparent 70%);
+}
 
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao deletar transação", details: String(e?.message || e) });
-  }
-});
+/* neutro */
+.heroAvatar.status-neutral{
+  border-color: rgba(255,255,255,.65);
+}
 
-// ===== CATEGORIAS (globais, sem auth) =====
+/* Mobile: mais impactante */
+@media (max-width: 768px){
+  .heroAvatar{ width: 120px; height: 120px; }
+}
 
-// listar categorias (opcional type=income|expense)
-app.get("/api/categories", async (req, res) => {
-  try {
-    const type = req.query.type;
 
-    const q =
-      type === "income" || type === "expense"
-        ? await pool.query(
-            `
-            select name, emoji, kind
-            from public.categories
-            where is_active = true and (kind = $1 or kind = 'both')
-            order by name
-            `,
-            [type]
-          )
-        : await pool.query(
-            `
-            select name, emoji, kind
-            from public.categories
-            where is_active = true
-            order by name
-            `
-          );
-
-    res.json(q.rows);
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao listar categorias", details: String(e?.message || e) });
-  }
-});
-
-// criar categoria (se quiser, dá pra colocar auth/admin depois)
-app.post("/api/categories", async (req, res) => {
-  try {
-    const { name, emoji, kind } = req.body;
-
-    if (!name || typeof name !== "string") return res.status(400).json({ error: "Nome inválido" });
-    if (!emoji || typeof emoji !== "string") return res.status(400).json({ error: "Emoji inválido" });
-    if (!["both", "income", "expense"].includes(kind)) return res.status(400).json({ error: "Kind inválido" });
-
-    await pool.query(
-      `insert into public.categories (name, emoji, kind) values ($1, $2, $3)`,
-      [name.trim(), emoji.trim(), kind]
-    );
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: "Categoria já existe ou erro ao salvar", details: String(e?.message || e) });
-  }
-});
-
-// ===== EXPORT (com auth, por usuário) =====
-app.get("/export.xlsx", requireUser, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
-    const category = req.query.category || "";
-
-    const q = category
-      ? await pool.query(
-          `
-          select type, amount_cents, category, description,
-                 to_char(date_iso, 'YYYY-MM-DD') as date_iso
-          from public.transactions
-          where user_id = $1 and month_key = $2 and category = $3
-          order by date_iso asc, id asc
-          `,
-          [userId, month, category]
-        )
-      : await pool.query(
-          `
-          select type, amount_cents, category, description,
-                 to_char(date_iso, 'YYYY-MM-DD') as date_iso
-          from public.transactions
-          where user_id = $1 and month_key = $2
-          order by date_iso asc, id asc
-          `,
-          [userId, month]
-        );
-
-    const rows = q.rows;
-
-    const wb = new ExcelJS.Workbook();
-    wb.creator = "Contabils";
-
-    const ws = wb.addWorksheet("Extrato");
-    ws.columns = [
-      { header: "Data", key: "date", width: 14 },
-      { header: "Tipo", key: "type", width: 10 },
-      { header: "Categoria", key: "category", width: 18 },
-      { header: "Descrição", key: "description", width: 36 },
-      { header: "Valor (R$)", key: "value", width: 14 },
-    ];
-    ws.getRow(1).font = { bold: true };
-    ws.views = [{ state: "frozen", ySplit: 1 }];
-
-    for (const tx of rows) {
-      ws.addRow({
-        date: tx.date_iso,
-        type: tx.type === "income" ? "Entrada" : "Saída",
-        category: tx.category,
-        description: tx.description || "",
-        value: Number(tx.amount_cents) / 100,
-      });
-    }
-
-    ws.getColumn("value").numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
-
-    const incomeCents = rows.filter(r => r.type === "income").reduce((a, b) => a + Number(b.amount_cents), 0);
-    const expenseCents = rows.filter(r => r.type === "expense").reduce((a, b) => a + Number(b.amount_cents), 0);
-    const balanceCents = incomeCents - expenseCents;
-
-    ws.addRow({});
-    ws.addRow({
-      date: "",
-      type: "Exportado em",
-      category: new Date().toLocaleString("pt-BR"),
-      description: category ? `Filtro: ${category}` : "Filtro: Todas",
-      value: "",
-    });
-    ws.addRow({});
-
-    const r1 = ws.addRow({ date: "", type: "TOTAL ENTRADAS", category: "", description: "", value: incomeCents / 100 });
-    const r2 = ws.addRow({ date: "", type: "TOTAL SAÍDAS", category: "", description: "", value: expenseCents / 100 });
-    const r3 = ws.addRow({ date: "", type: "SALDO (ENTRADAS - SAÍDAS)", category: "", description: "", value: balanceCents / 100 });
-    r1.font = { bold: true };
-    r2.font = { bold: true };
-    r3.font = { bold: true };
-
-    const safeCat = category ? `_${String(category).replace(/[^\w\-]+/g, "_")}` : "";
-    const filename = `contabils_extrato_${month}${safeCat}.xlsx`;
-
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
-    await wb.xlsx.write(res);
-    res.end();
-  } catch (e) {
-    res.status(500).json({ error: "Erro ao exportar", details: String(e?.message || e) });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`✅ Contabils rodando em http://localhost:${PORT}`);
-});
