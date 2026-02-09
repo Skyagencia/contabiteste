@@ -17,6 +17,12 @@ const categoryEl = document.getElementById("category");
 const descriptionEl = document.getElementById("description");
 const dateEl = document.getElementById("date");
 
+// Avatar UI
+const avatarBtn = document.getElementById("avatarBtn");
+const heroAvatarInner =
+  document.getElementById("heroAvatarInner") || document.getElementById("userAvatarInner");
+const avatarMood = document.getElementById("avatarMood");
+
 // ====== Helpers ======
 function formatBRL(cents) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,20 +38,10 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
-function setHint(msg) {
-  if (hint) hint.textContent = msg || "";
-}
-
-function redirectToLogin() {
-  const next = encodeURIComponent(window.location.pathname + window.location.search);
-  window.location.replace(`/login.html?next=${next}`);
-}
-
-// ===== Supabase Client (SEM CONFUSÃO) =====
-// A gente SEMPRE usa o client criado no index.html: window.supabaseClient
-async function waitForSupabaseClient({ tries = 50, delayMs = 80 } = {}) {
+// Espera o Supabase aparecer no window (evita "undefined" em cache/ordem de script)
+async function waitForSupabaseClient({ tries = 70, delayMs = 80 } = {}) {
   for (let i = 0; i < tries; i++) {
-    const sb = window.supabaseClient;
+    const sb = window.supabaseClient || window.supabase;
     if (sb && sb.auth) return sb;
     await new Promise((r) => setTimeout(r, delayMs));
   }
@@ -55,7 +51,7 @@ async function waitForSupabaseClient({ tries = 50, delayMs = 80 } = {}) {
 // Pega headers auth (Bearer token)
 async function authHeaders() {
   const sb = await waitForSupabaseClient();
-  if (!sb) return {};
+  if (!sb) return {}; // vai falhar em requireAuthOrRedirect mesmo
 
   const { data } = await sb.auth.getSession();
   const token = data?.session?.access_token;
@@ -63,26 +59,11 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// Wrapper fetch com auth + TRATA 401
+// Wrapper fetch com auth
 async function fetchAuth(url, opts = {}) {
   const headers = await authHeaders();
   const mergedHeaders = { ...(opts.headers || {}), ...headers };
   const res = await fetch(url, { ...opts, headers: mergedHeaders });
-
-  // ✅ se deu 401, sessão morreu → manda pro login sem quebrar o app
-  if (res.status === 401) {
-    try {
-      const sb = await waitForSupabaseClient();
-      if (sb?.auth) await sb.auth.signOut();
-    } catch (e) {
-      console.warn("signOut falhou no 401:", e);
-    } finally {
-      localStorage.clear();
-      sessionStorage.clear();
-      redirectToLogin();
-    }
-  }
-
   return res;
 }
 
@@ -92,90 +73,156 @@ async function requireAuthOrRedirect() {
 
   if (!sb || !sb.auth) {
     console.warn("Supabase client não encontrado ainda.");
-    // não quebra a página, mas também não deixa seguir
-    setHint("Carregando...");
-    return false;
+    return false; // não quebra a página
   }
 
   const { data } = await sb.auth.getSession();
   const session = data?.session;
 
   if (!session) {
-    redirectToLogin();
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.replace(`/login.html?next=${next}`);
     return false;
   }
 
   return true;
 }
 
-// ===== PWA: estado de instalação (some com prompts quando já está instalado) =====
-function isAppInstalled() {
-  return (
-    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-    window.navigator.standalone === true
-  );
-}
-
-/**
- * ✅ Se houver algum UI de "instalar" na página (ex: #installPrompt),
- * isso garante que:
- * - Se já estiver instalado: esconde
- * - Se instalar agora: esconde na hora (evento appinstalled)
- *
- * Obs: Mesmo que o app não tenha esse elemento, não dá erro.
- */
-function setupInstallStateWatcher() {
-  const DISMISS_KEY = "contabils_install_dismissed_at";
-
-  function markInstalledAndHide() {
-    try {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()));
-    } catch {}
-    const el = document.getElementById("installPrompt");
-    if (el) el.hidden = true;
-  }
-
-  // Se já está instalado, some com qualquer prompt
-  if (isAppInstalled()) markInstalledAndHide();
-
-  // Se instalar durante o uso, some na hora
-  window.addEventListener("appinstalled", () => {
-    markInstalledAndHide();
-  });
-}
-
 // ===== Logout =====
 logoutBtn?.addEventListener("click", async () => {
-  const sb = await waitForSupabaseClient();
+  const sb = window.supabaseClient || window.supabase;
 
-  const oldText = logoutBtn?.textContent || "Sair";
+  const btn = logoutBtn;
+  const oldText = btn?.textContent || "Sair";
 
   if (!sb?.auth) {
     alert("Supabase não carregou ainda. Recarrega a página e tenta de novo.");
     return;
   }
 
-  if (logoutBtn) {
-    logoutBtn.disabled = true;
-    logoutBtn.textContent = "Saindo...";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saindo...";
   }
 
   try {
     const { error } = await sb.auth.signOut();
     if (error) throw error;
 
-    localStorage.clear();
-    sessionStorage.clear();
     window.location.href = "/login.html";
   } catch (e) {
     console.error(e);
-    if (logoutBtn) {
-      logoutBtn.disabled = false;
-      logoutBtn.textContent = oldText;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText;
     }
     alert("Não consegui sair agora. Tenta de novo rapidinho.");
   }
 });
+
+// ====== Cards: cores do dashboard (entradas verde, saídas vermelha) ======
+function applyDashboardCardColors() {
+  function parentCard(el) {
+    if (!el) return null;
+    return el.closest(".card") || el.closest(".panel") || null;
+  }
+
+  const incomeCard = parentCard(incomeValue);
+  const expenseCard = parentCard(expenseValue);
+  const balanceCard = parentCard(balanceValue);
+
+  if (incomeValue) incomeValue.style.color = "var(--good)";
+  if (expenseValue) expenseValue.style.color = "var(--bad)";
+  if (balanceValue) balanceValue.style.color = "var(--ink)";
+
+  if (incomeCard && incomeCard.classList?.contains("card")) {
+    incomeCard.style.boxShadow = "0 18px 45px rgba(0,0,0,.12), 0 0 0 1px rgba(16,185,129,.16)";
+  }
+  if (expenseCard && expenseCard.classList?.contains("card")) {
+    expenseCard.style.boxShadow = "0 18px 45px rgba(0,0,0,.12), 0 0 0 1px rgba(239,68,68,.16)";
+  }
+  if (balanceCard && balanceCard.classList?.contains("card")) {
+    // mantém padrão
+  }
+}
+
+// ====== Avatar: status neon + texto mood (DINÂMICO PELO SALDO) ======
+function setAvatarStatusByBalance(balanceCents) {
+  if (!avatarBtn) return;
+
+  const bal = Number(balanceCents);
+
+  avatarBtn.classList.remove("status-good", "status-warn", "status-bad", "status-neutral");
+
+  if (!Number.isFinite(bal)) {
+    avatarBtn.classList.add("status-neutral");
+    if (avatarMood) avatarMood.textContent = "Carregando seu saldo… 💸";
+    return;
+  }
+
+  if (bal > 0) {
+    avatarBtn.classList.add("status-good");
+    if (avatarMood) avatarMood.textContent = "Você tá economizando esse mês 😎";
+  } else if (bal === 0) {
+    avatarBtn.classList.add("status-warn");
+    if (avatarMood) avatarMood.textContent = "Mês zerado: nem sobe nem desce 😅";
+  } else {
+    avatarBtn.classList.add("status-bad");
+    if (avatarMood) avatarMood.textContent = "O mês tá no vermelho… vamo virar o jogo 💪";
+  }
+}
+
+// ====== Avatar: carregar foto do profiles.avatar_url ======
+async function loadAvatarFromProfile() {
+  try {
+    const sb = await waitForSupabaseClient();
+    if (!sb?.auth) return;
+
+    const { data: userData, error: userErr } = await sb.auth.getUser();
+    if (userErr) {
+      console.warn("getUser erro:", userErr);
+      return;
+    }
+
+    const user = userData?.user;
+    if (!user) return;
+
+    const { data: profile, error: profErr } = await sb
+      .from("profiles")
+      .select("avatar_url")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profErr) {
+      console.warn("profiles select erro:", profErr);
+      return;
+    }
+
+    const url = profile?.avatar_url;
+    if (!url) return;
+
+    if (!heroAvatarInner) return;
+
+    const fallback = document.getElementById("avatarFallback");
+    if (fallback) fallback.remove();
+
+    const existing = heroAvatarInner.querySelector("img[data-avatar='1']");
+    if (existing) {
+      existing.src = `${url}?t=${Date.now()}`;
+      return;
+    }
+
+    const img = document.createElement("img");
+    img.dataset.avatar = "1";
+    img.src = `${url}?t=${Date.now()}`;
+    img.alt = "Foto do perfil";
+
+    heroAvatarInner.textContent = "";
+    heroAvatarInner.appendChild(img);
+  } catch (e) {
+    console.warn("loadAvatarFromProfile falhou:", e);
+  }
+}
 
 // ====== App ======
 function animateNumber(el, toCents) {
@@ -183,8 +230,6 @@ function animateNumber(el, toCents) {
 
   const fromText = el.getAttribute("data-cents");
   const from = fromText ? Number(fromText) : 0;
-
-  // ✅ garante número válido (evita NaN)
   const to = Number.isFinite(Number(toCents)) ? Number(toCents) : 0;
 
   const start = performance.now();
@@ -203,8 +248,6 @@ function animateNumber(el, toCents) {
 }
 
 async function load() {
-  setHint("");
-
   const month = monthInput?.value || currentMonth();
   const cat = categoryFilter?.value || "";
 
@@ -213,30 +256,27 @@ async function load() {
     fetchAuth(`/api/transactions?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`),
   ]);
 
-  // Se rolou 401, fetchAuth já redirecionou. Só para por aqui.
-  if (!sumRes || !txRes) return;
-
   if (!sumRes.ok) {
     const err = await sumRes.json().catch(() => ({}));
-    setHint(err?.error || "Erro ao carregar resumo");
+    if (hint) hint.textContent = err?.error || "Erro ao carregar resumo";
     return;
   }
 
   if (!txRes.ok) {
     const err = await txRes.json().catch(() => ({}));
-    setHint(err?.error || "Erro ao carregar transações");
+    if (hint) hint.textContent = err?.error || "Erro ao carregar transações";
     return;
   }
 
   const summary = await sumRes.json().catch(() => ({}));
   const txsRaw = await txRes.json().catch(() => []);
-
-  // ✅ txs SEMPRE array (mata o “txs is not iterable”)
   const txs = Array.isArray(txsRaw) ? txsRaw : [];
 
   animateNumber(incomeValue, summary.income);
   animateNumber(expenseValue, summary.expense);
   animateNumber(balanceValue, summary.balance);
+
+  setAvatarStatusByBalance(summary?.balance);
 
   if (listEl) listEl.innerHTML = "";
 
@@ -265,12 +305,8 @@ async function load() {
       </div>
     `;
 
-    div.querySelector(".del").addEventListener("click", async () => {
+    div.querySelector(".del")?.addEventListener("click", async () => {
       const delRes = await fetchAuth(`/api/transactions/${tx.id}`, { method: "DELETE" });
-
-      // 401 já redirecionou
-      if (!delRes) return;
-
       if (!delRes.ok) {
         const err = await delRes.json().catch(() => ({}));
         alert(err?.error || "Não consegui apagar agora.");
@@ -285,53 +321,51 @@ async function load() {
 
 async function loadCategories() {
   try {
-    // categorias são globais (não precisam auth)
-    const type = typeEl?.value || "income"; // income/expense
-
+    const type = typeEl?.value || "income";
     const res = await fetch(`/api/categories?type=${encodeURIComponent(type)}`);
     const catsRaw = await res.json().catch(() => []);
     const cats = Array.isArray(catsRaw) ? catsRaw : [];
 
-    // select de lançamento
-    categorySelect.innerHTML = "";
+    if (categorySelect) categorySelect.innerHTML = "";
     for (const c of cats) {
       const opt = document.createElement("option");
       opt.value = c.name;
       opt.textContent = `${c.emoji} ${c.name}`;
-      categorySelect.appendChild(opt);
+      categorySelect?.appendChild(opt);
     }
 
-    // filtro (todas categorias)
     const allRes = await fetch(`/api/categories`);
     const allCatsRaw = await allRes.json().catch(() => []);
     const allCats = Array.isArray(allCatsRaw) ? allCatsRaw : [];
 
     const current = categoryFilter?.value || "";
-    categoryFilter.innerHTML = `<option value="">Todas</option>`;
-    for (const c of allCats) {
-      const opt = document.createElement("option");
-      opt.value = c.name;
-      opt.textContent = `${c.emoji} ${c.name}`;
-      categoryFilter.appendChild(opt);
+    if (categoryFilter) {
+      categoryFilter.innerHTML = `<option value="">Todas</option>`;
+      for (const c of allCats) {
+        const opt = document.createElement("option");
+        opt.value = c.name;
+        opt.textContent = `${c.emoji} ${c.name}`;
+        categoryFilter.appendChild(opt);
+      }
+      categoryFilter.value = current;
     }
-    categoryFilter.value = current;
   } catch (e) {
     console.error("Erro ao carregar categorias:", e);
-    setHint("Erro ao carregar categorias");
+    if (hint) hint.textContent = "Erro ao carregar categorias";
   }
 }
 
 // ====== Eventos ======
 form?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  setHint("");
+  if (hint) hint.textContent = "";
 
   const payload = {
-    type: typeEl.value,
-    amount: (amountEl.value || "").replace(",", "."),
-    category: categorySelect.value,
-    description: descriptionEl.value,
-    date: dateEl.value,
+    type: typeEl?.value,
+    amount: (amountEl?.value || "").replace(",", "."),
+    category: categorySelect?.value,
+    description: descriptionEl?.value,
+    date: dateEl?.value,
   };
 
   const res = await fetchAuth("/api/transactions", {
@@ -340,29 +374,23 @@ form?.addEventListener("submit", async (e) => {
     body: JSON.stringify(payload),
   });
 
-  // 401 já redirecionou
-  if (!res) return;
-
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    setHint(data.error || "Erro ao salvar");
+    if (hint) hint.textContent = data.error || "Erro ao salvar";
     return;
   }
 
-  amountEl.value = "";
-  descriptionEl.value = "";
-  categoryEl.value = "";
-  setHint("Salvo ✅");
+  if (amountEl) amountEl.value = "";
+  if (descriptionEl) descriptionEl.value = "";
+  if (categoryEl) categoryEl.value = "";
+  if (hint) hint.textContent = "Salvo ✅";
+
   load();
 });
 
 monthInput?.addEventListener("change", load);
-
-typeEl?.addEventListener("change", async () => {
-  await loadCategories();
-});
-
+typeEl?.addEventListener("change", async () => await loadCategories());
 categoryFilter?.addEventListener("change", load);
 
 // ===== Export (com auth via blob) =====
@@ -373,10 +401,6 @@ exportBtn?.addEventListener("click", async () => {
     const url = `/export.xlsx?month=${encodeURIComponent(month)}&category=${encodeURIComponent(cat)}`;
 
     const res = await fetchAuth(url);
-
-    // 401 já redirecionou
-    if (!res) return;
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       alert(err?.error || "Não consegui exportar agora.");
@@ -399,106 +423,11 @@ exportBtn?.addEventListener("click", async () => {
 });
 
 // ===== PWA: registra o Service Worker =====
-// ===== PWA: registra o Service Worker + banner de atualização =====
-function ensureUpdateBanner() {
-  if (document.getElementById("pwaUpdateBanner")) return;
-
-  const banner = document.createElement("div");
-  banner.id = "pwaUpdateBanner";
-  banner.style.cssText = `
-    position: fixed;
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-    z-index: 9999;
-    background: rgba(11,18,32,.98);
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 14px;
-    padding: 14px;
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    box-shadow: 0 18px 50px rgba(0,0,0,.35);
-    color: #fff;
-  `;
-
-  banner.innerHTML = `
-    <div style="display:flex; flex-direction:column; gap:2px;">
-      <strong style="font-size:14px;">Atualização disponível 🚀</strong>
-      <span style="font-size:12px; opacity:.85;">Tem versão nova do Contabils. Quer atualizar agora?</span>
-    </div>
-    <div style="display:flex; gap:10px; align-items:center;">
-      <button id="pwaLaterBtn" type="button"
-        style="background:transparent; border:1px solid rgba(255,255,255,.18); color:#fff; padding:9px 12px; border-radius:10px; cursor:pointer;">
-        Depois
-      </button>
-      <button id="pwaUpdateBtn" type="button"
-        style="background:#fff; border:none; color:#0b1220; padding:9px 12px; border-radius:10px; cursor:pointer; font-weight:700;">
-        Atualizar
-      </button>
-    </div>
-  `;
-
-  document.body.appendChild(banner);
-
-  document.getElementById("pwaLaterBtn").addEventListener("click", () => {
-    banner.style.display = "none";
-  });
-
-  return banner;
-}
-
-async function setupPwaUpdateFlow(reg) {
-  const banner = ensureUpdateBanner();
-
-  // Quando o SW controlador mudar (novo SW ativou), recarrega
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
-
-  function showBannerIfWaiting() {
-    if (!reg.waiting) return;
-
-    banner.style.display = "flex";
-
-    const btn = document.getElementById("pwaUpdateBtn");
-    btn.onclick = () => {
-      // manda o SW em waiting ativar
-      reg.waiting.postMessage({ type: "SKIP_WAITING" });
-    };
-  }
-
-  // Se já existe waiting (update já baixou), mostra
-  showBannerIfWaiting();
-
-  // Detecta updates futuros
-  reg.addEventListener("updatefound", () => {
-    const newSW = reg.installing;
-    if (!newSW) return;
-
-    newSW.addEventListener("statechange", () => {
-      // Instalou e já existe controller => update pronto (waiting)
-      if (newSW.state === "installed" && navigator.serviceWorker.controller) {
-        showBannerIfWaiting();
-      }
-    });
-  });
-}
-
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.register("/sw.js");
       console.log("✅ Contabils PWA: Service Worker registrado");
-
-      // Opcional: força checar update ao abrir o app
-      reg.update?.().catch(() => {});
-
-      await setupPwaUpdateFlow(reg);
     } catch (e) {
       console.warn("⚠️ Contabils PWA: falha ao registrar Service Worker", e);
     }
@@ -507,17 +436,152 @@ if ("serviceWorker" in navigator) {
 
 // ===== INIT =====
 (async function init() {
-  // ✅ garante que qualquer UI de “Instalar” suma quando já estiver instalado
-  setupInstallStateWatcher();
-
-  // init inputs
   if (monthInput) monthInput.value = currentMonth();
   if (dateEl) dateEl.value = todayISO();
 
-  // trava o app se não tiver logado
   const ok = await requireAuthOrRedirect();
   if (!ok) return;
+
+  applyDashboardCardColors();
+
+  await loadAvatarFromProfile();
+  setupAvatarUpload();
 
   await loadCategories();
   await load();
 })();
+
+// ====== Avatar: upload ao clicar (Storage + profiles.avatar_url) ======
+function setupAvatarUpload() {
+  if (!avatarBtn || !heroAvatarInner) return;
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*";
+  fileInput.style.display = "none";
+  document.body.appendChild(fileInput);
+
+  avatarBtn.addEventListener("click", () => fileInput.click());
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+
+    const maxMb = 5;
+    if (file.size > maxMb * 1024 * 1024) {
+      alert(`Imagem muito grande. Máximo: ${maxMb}MB`);
+      return;
+    }
+
+    try {
+      const sb = await waitForSupabaseClient();
+      if (!sb?.auth) {
+        alert("Supabase não carregou. Recarrega e tenta de novo.");
+        return;
+      }
+
+      const { data: userData, error: userErr } = await sb.auth.getUser();
+      if (userErr) throw userErr;
+      const user = userData?.user;
+      if (!user) return;
+
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
+      const path = `${user.id}/avatar.${safeExt}`;
+
+      if (avatarMood) avatarMood.textContent = "Enviando sua foto… ⏳";
+
+      const { error: upErr } = await sb.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        cacheControl: "3600",
+        contentType: file.type || "image/jpeg",
+      });
+
+      if (upErr) throw upErr;
+
+      const { data: pub } = sb.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = pub?.publicUrl;
+      if (!publicUrl) throw new Error("Não consegui gerar publicUrl do avatar.");
+
+      // ✅ resolve NOT NULL (name/phone/email) criando profile se não existir; senão só atualiza avatar
+const displayName =
+  user.user_metadata?.name ||
+  user.user_metadata?.full_name ||
+  (user.email ? user.email.split("@")[0] : "Usuário");
+
+const phoneValue =
+  user.user_metadata?.phone ||
+  user.user_metadata?.telefone ||
+  user.phone ||
+  "00000000000";
+
+const emailValue =
+  user.email ||
+  user.user_metadata?.email ||
+  "sem-email@contabils.local";
+
+// 1) tenta ver se já existe profile
+const { data: existingProfile, error: getProfErr } = await sb
+  .from("profiles")
+  .select("id")
+  .eq("id", user.id)
+  .maybeSingle();
+
+if (getProfErr) throw getProfErr;
+
+// 2) se já existe -> update só do avatar
+if (existingProfile?.id) {
+  const { error: updErr } = await sb
+    .from("profiles")
+    .update({
+      avatar_url: publicUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", user.id);
+
+  if (updErr) throw updErr;
+} else {
+  // 3) se NÃO existe -> insert com os NOT NULL
+  const { error: insErr } = await sb.from("profiles").insert({
+    id: user.id,
+    name: displayName,
+    phone: phoneValue,
+    email: emailValue,
+    avatar_url: publicUrl,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (insErr) throw insErr;
+}
+
+
+      const fallback = document.getElementById("avatarFallback");
+      if (fallback) fallback.remove();
+
+      const existing = heroAvatarInner.querySelector("img[data-avatar='1']");
+      if (existing) existing.src = `${publicUrl}?t=${Date.now()}`;
+      else {
+        heroAvatarInner.textContent = "";
+        const img = document.createElement("img");
+        img.dataset.avatar = "1";
+        img.src = `${publicUrl}?t=${Date.now()}`;
+        img.alt = "Foto do perfil";
+        heroAvatarInner.appendChild(img);
+      }
+
+      if (avatarMood) avatarMood.textContent = "Foto atualizada ✅";
+    } catch (e) {
+      console.error("Avatar upload falhou:", e);
+
+      const msg = String(e?.message || e);
+      if (msg.includes("403") || msg.toLowerCase().includes("not authorized")) {
+        alert("Sem permissão pra enviar/salvar (Storage/Profiles policy). Me manda o erro completo do console que eu te passo a policy certinha.");
+      } else {
+        alert("Não consegui enviar a foto agora. Tenta de novo.");
+      }
+
+      if (avatarMood) avatarMood.textContent = "Seu mês está começando…";
+    }
+  });
+}
