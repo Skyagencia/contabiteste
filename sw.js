@@ -73,6 +73,7 @@ self.addEventListener("fetch", (event) => {
 
           // garante também o index.html (melhor fallback offline)
           if (url.pathname === "/" || url.pathname.endsWith(".html")) {
+            // se for HTML, tenta manter o index atualizado também
             cache.put("/index.html", fresh.clone());
           }
 
@@ -101,8 +102,3 @@ self.addEventListener("fetch", (event) => {
     })()
   );
 });
-
-
-
-
-
