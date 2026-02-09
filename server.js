@@ -427,6 +427,7 @@ app.get("/export.xlsx", requireUser, async (req, res) => {
   }
 });
 
+
 app.listen(PORT, () => {
   console.log(`✅ Contabils rodando em http://localhost:${PORT}`);
 });
