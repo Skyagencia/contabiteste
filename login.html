@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contabils — Entrar</title>
+
   <link rel="stylesheet" href="/styles.css" />
+  <!-- ✅ PWA -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1220" />
 </head>
 <body>
   <div class="app">
@@ -47,16 +51,41 @@
     </div>
   </div>
 
+  <!-- ✅ Prompt sutil de instalação (tipo notificação) -->
+  <div id="installPrompt" class="installPrompt" hidden>
+    <div class="installPrompt__icon" aria-hidden="true">⬇️</div>
+
+    <div class="installPrompt__text">
+      <div class="installPrompt__title">Instalar Contabils</div>
+      <div id="installSubtitle" class="installPrompt__subtitle">Acesso rápido na tela inicial</div>
+    </div>
+
+    <div class="installPrompt__actions">
+      <button id="installBtn" class="installPrompt__btn" type="button">Instalar</button>
+      <button id="installClose" class="installPrompt__close" type="button" aria-label="Fechar">✕</button>
+    </div>
+  </div>
+
   <!-- Supabase JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
     // =========================
+    // 0) PWA: registra SW também no login
+    // =========================
+    (function registerSwOnLogin(){
+      if (!("serviceWorker" in navigator)) return;
+      window.addEventListener("load", async () => {
+        try { await navigator.serviceWorker.register("/sw.js"); }
+        catch (e) { console.warn("SW não registrou no login:", e); }
+      });
+    })();
+
+    // =========================
     // 1) CONFIG SUPABASE
     // =========================
     const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
-
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // =========================
@@ -110,10 +139,7 @@
 
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
-      if (error) {
-        // Erros comuns: email não confirmado, credenciais inválidas
-        return setHint(error.message || "Não foi possível entrar", true);
-      }
+      if (error) return setHint(error.message || "Não foi possível entrar", true);
 
       if (data && data.session) {
         setHint("Logado ✅ redirecionando...");
@@ -124,37 +150,14 @@
     };
 
     // =========================
-    // 5) SIGNUP (CRIAR CONTA)
+    // 5) CRIAR CONTA → VAI PARA signup.html
     // =========================
-    signupBtn.onclick = async () => {
-      const email = cleanEmail(emailEl.value);
-      const password = passEl.value || "";
-
-      if (!email.includes("@")) return setHint("Email inválido", true);
-      if (password.length < 6)  return setHint("Senha muito curta (mín. 6)", true);
-
-      setHint("Criando conta...");
-
-      const { data, error } = await supabaseClient.auth.signUp({
-        email,
-        password,
-        options: {
-          // Vai usar a URL do projeto configurada no Supabase
-          // (depois a gente deixa isso premium e bonito com redirect certinho)
-        }
-      });
-
-      if (error) return setHint(error.message || "Erro ao criar conta", true);
-
-      // Se Confirm Email estiver ligado, geralmente precisa confirmar antes de logar
-      setHint("Conta criada ✅ Agora confirma no email e depois faz login aqui.", false);
-
-      // UX: deixa o usuário no modo login (não muda a tela, só orienta)
-      passEl.value = "";
+    signupBtn.onclick = () => {
+      window.location.href = "/signup.html";
     };
 
     // =========================
-    // 6) RESET DE SENHA
+    // 6) RESET DE SENHA (mantém!)
     // =========================
     forgotBtn.onclick = async () => {
       const email = cleanEmail(emailEl.value);
@@ -163,15 +166,115 @@
       setHint("Enviando link de recuperação...");
 
       const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-        // Depois a gente cria uma tela bonitinha de "reset.html"
-        // Por enquanto, manda de volta pro login
         redirectTo: `${window.location.origin}/login.html`
       });
 
       if (error) return setHint(error.message || "Erro ao enviar recuperação", true);
-
       setHint("Boa ✅ Link de recuperação enviado pro seu email.", false);
     };
+
+    // =========================
+    // 7) PWA INSTALL (somente pelo nosso botão)
+    // =========================
+    (function setupInstallPrompt(){
+      const promptEl = document.getElementById("installPrompt");
+      const installBtn = document.getElementById("installBtn");
+      const closeBtn = document.getElementById("installClose");
+      const subtitleEl = document.getElementById("installSubtitle");
+
+      if (!promptEl || !installBtn || !closeBtn || !subtitleEl) return;
+
+      const DISMISS_KEY = "contabils_install_dismissed_at";
+      const DISMISS_DAYS = 7;
+
+      function isStandalone(){
+        return (
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          window.navigator.standalone === true
+        );
+      }
+
+      function dismissedRecently(){
+        const now = Date.now();
+        const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
+        return dismissedAt && (now - dismissedAt) < DISMISS_DAYS * 24 * 60 * 60 * 1000;
+      }
+
+      function show(){ promptEl.hidden = false; }
+      function hide(){ promptEl.hidden = true; }
+
+      function dismiss(){
+        localStorage.setItem(DISMISS_KEY, String(Date.now()));
+        hide();
+      }
+
+      // estado inicial
+      hide();
+      installBtn.disabled = true;
+
+      if (isStandalone() || dismissedRecently()) return;
+
+      // iOS: mostra instrução (não tem prompt nativo)
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android|edg).)*safari/i.test(navigator.userAgent);
+
+      if (isIOS && isSafari) {
+        subtitleEl.textContent = "iPhone: Compartilhar → Adicionar à Tela de Início";
+        installBtn.textContent = "Como instalar";
+        installBtn.disabled = false;
+        show();
+
+        installBtn.onclick = () => {
+          alert("No iPhone: toque em Compartilhar e depois em “Adicionar à Tela de Início”.");
+          dismiss();
+        };
+
+        closeBtn.onclick = dismiss;
+
+        window.addEventListener("appinstalled", dismiss);
+        return;
+      }
+
+      // Android/Chrome: captura e bloqueia o prompt automático
+      window.__deferredPrompt = null;
+
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault(); // ✅ bloqueia o do Chrome
+        window.__deferredPrompt = e;
+
+        subtitleEl.textContent = "Acesso rápido na tela inicial";
+        installBtn.textContent = "Instalar";
+        installBtn.disabled = false;
+        show();
+      });
+
+      installBtn.addEventListener("click", async () => {
+        const dp = window.__deferredPrompt;
+        if (!dp) {
+          alert("Se não abrir, procure o ícone de instalar (⬇️) na barra do navegador.");
+          dismiss();
+          return;
+        }
+
+        dp.prompt();
+        await dp.userChoice.catch(() => {});
+        window.__deferredPrompt = null;
+
+        dismiss();
+      });
+
+      closeBtn.addEventListener("click", dismiss);
+
+      window.addEventListener("appinstalled", () => {
+        localStorage.setItem("contabils_installed", "1");
+        dismiss();
+      });
+
+      // Se já marcou como instalado, não mostra (extra)
+      if (localStorage.getItem("contabils_installed") === "1") {
+        hide();
+      }
+    })();
   </script>
 </body>
 </html>
