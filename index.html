@@ -17,26 +17,13 @@
 <body>
   <div class="app">
     <header class="header">
-      <!-- Avatar central (status do mês) -->
-<div class="heroAvatarWrap">
-  <button
-    id="avatarBtn"
-    class="heroAvatar status-good"
-    type="button"
-    aria-label="Foto do perfil"
-  >
-    <div class="heroAvatarInner" id="heroAvatarInner">
-      <span id="avatarFallback">💰</span>
-    </div>
-  </button>
-
-  <div class="heroAvatarLabel" id="avatarMood">
-    Seu mês está começando…
-  </div>
-</div>
-
-
-
+      <div class="brand">
+        <div class="logo">💰</div>
+        <div>
+          <h1>Contabils</h1>
+          <p class="sub">Seu contador financeiro pessoal (sem julgar seus “pequenos” gastos 😅)</p>
+        </div>
+      </div>
 
       <div class="month">
         <label>Mês</label>
@@ -124,22 +111,25 @@
     </section>
   </div>
 
-<!-- Supabase v2 (IIFE global) -->
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <!-- ✅ Supabase v2 (global/IIFE) -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
-<script>
-  const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
+  <script>
+    const SUPABASE_URL = "https://mdbsjoefzjwvkulupodb.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_XB_KfHB0KbCFdCpOpJxEqA___UNhPK0";
 
-  // ✅ aqui o correto é window.supabase (a lib), e não window.supabase.createClient
-  // porque na IIFE v2 o objeto global costuma expor createClient dentro dele.
-  window.supabaseClient = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY
-  );
-</script>
+    // Cria o client global usado no app.js
+    if (!window.supabase) {
+      alert("Erro: Supabase SDK não carregou. Verifique o script do Supabase no index.html.");
+    } else {
+      window.supabaseClient = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_ANON_KEY
+      );
+    }
+  </script>
 
-<script src="/app.js"></script>
-
+  <!-- ✅ seu app -->
+  <script src="/app.js" defer></script>
 </body>
 </html>
