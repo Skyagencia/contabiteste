@@ -172,17 +172,58 @@ function setAvatarStatusByBalance(balanceCents) {
   }
 }
 
+// ====== Avatar: helpers (render) ======
+function renderAvatarFallback() {
+  if (!heroAvatarInner) return;
+
+  // remove imagem antiga
+  const existing = heroAvatarInner.querySelector("img[data-avatar='1']");
+  if (existing) existing.remove();
+
+  // garante fallback visível
+  let fallback = document.getElementById("avatarFallback");
+  if (!fallback) {
+    fallback = document.createElement("span");
+    fallback.id = "avatarFallback";
+    fallback.textContent = "💰";
+    heroAvatarInner.textContent = "";
+    heroAvatarInner.appendChild(fallback);
+  }
+}
+
+function renderAvatarUrl(url) {
+  if (!heroAvatarInner) return;
+
+  // remove fallback
+  const fallback = document.getElementById("avatarFallback");
+  if (fallback) fallback.remove();
+
+  // aplica imagem
+  const existing = heroAvatarInner.querySelector("img[data-avatar='1']");
+  if (existing) {
+    existing.src = `${url}?t=${Date.now()}`;
+    return;
+  }
+
+  heroAvatarInner.textContent = "";
+  const img = document.createElement("img");
+  img.dataset.avatar = "1";
+  img.src = `${url}?t=${Date.now()}`;
+  img.alt = "Foto do perfil";
+  heroAvatarInner.appendChild(img);
+}
+
 // ====== Avatar: carregar foto do profiles.avatar_url ======
 async function loadAvatarFromProfile() {
   try {
+    // 🔥 RESET SEMPRE (evita avatar do usuário anterior)
+    renderAvatarFallback();
+
     const sb = await waitForSupabaseClient();
     if (!sb?.auth) return;
 
     const { data: userData, error: userErr } = await sb.auth.getUser();
-    if (userErr) {
-      console.warn("getUser erro:", userErr);
-      return;
-    }
+    if (userErr) return;
 
     const user = userData?.user;
     if (!user) return;
@@ -193,36 +234,18 @@ async function loadAvatarFromProfile() {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profErr) {
-      console.warn("profiles select erro:", profErr);
-      return;
-    }
+    if (profErr) return;
 
     const url = profile?.avatar_url;
     if (!url) return;
 
-    if (!heroAvatarInner) return;
-
-    const fallback = document.getElementById("avatarFallback");
-    if (fallback) fallback.remove();
-
-    const existing = heroAvatarInner.querySelector("img[data-avatar='1']");
-    if (existing) {
-      existing.src = `${url}?t=${Date.now()}`;
-      return;
-    }
-
-    const img = document.createElement("img");
-    img.dataset.avatar = "1";
-    img.src = `${url}?t=${Date.now()}`;
-    img.alt = "Foto do perfil";
-
-    heroAvatarInner.textContent = "";
-    heroAvatarInner.appendChild(img);
+    renderAvatarUrl(url);
   } catch (e) {
     console.warn("loadAvatarFromProfile falhou:", e);
+    renderAvatarFallback();
   }
 }
+
 
 // ====== App ======
 function animateNumber(el, toCents) {
