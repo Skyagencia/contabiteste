@@ -2,7 +2,7 @@
    Contabils PWA - sw.js
    ========================= */
 
-const VERSION = "V1.3"; // 🔁 TROQUE ISSO A CADA DEPLOY
+const VERSION = "V1.2"; // 🔁 TROQUE ISSO A CADA DEPLOY
 const CACHE_NAME = `contabils-cache-${VERSION}`;
 
 const APP_SHELL = [
@@ -101,5 +101,6 @@ self.addEventListener("fetch", (event) => {
     })()
   );
 });
+
 
 
